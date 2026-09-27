@@ -32,9 +32,8 @@ def main() -> None:
     print(f"repo: {repo}")
     print(f"entries: {len(m['entries'])}, files: {len(files)}, bytes: {size / 1e6:.1f} MB")  # type: ignore[arg-type]
     print(f"ignored present (reported, not hashed): {m['ignored_present']}")
-    print(
-        f"cold build: {cold:.2f} s; warm build (stat cache): {warm:.2f} s; same digest: {m['digest'] == m2['digest']}"
-    )
+    same = m["digest"] == m2["digest"]
+    print(f"cold build: {cold:.2f} s; warm build (stat cache): {warm:.2f} s; same digest: {same}")
 
     for label, fn in (("python copy", "copy"), ("APFS clone (cp -c)", "clone")):
         dest = scratch / f"materialized-{fn}"
