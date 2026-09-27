@@ -1,6 +1,6 @@
 # Fixture contract: paginated item listing
 
-- Status: **draft, awaiting owner review of expected results** (PRD 01 agent task 2; FND-02, FND-03)
+- Status: **approved by the owner on 2026-09-27** (PRD 01 agent task 2; FND-02, FND-03). Implemented in `service/`, `acceptance/` and `variants/`; checked by `run_matrix.py`.
 - Date: 2026-09-27
 - Purpose: a small, fully synthetic backend service with one known defect, used to exercise OpenHarnX's M1 workflow and the T03 spikes. It is not a benchmark.
 
