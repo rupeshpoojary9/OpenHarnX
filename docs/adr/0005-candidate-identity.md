@@ -65,6 +65,18 @@ The vault run reported 921 ignored files and left the repository status unchange
 - Warm fingerprinting is well inside the stack research trigger (hashing above 2 s after caching). The cold build of about 2.4 s for a 1.1 GB tree is acceptable because it runs once per session.
 - Ignored files that affect a build (for example `.env`) are not in the identity. Profiles can declare specific ignored paths to include; until then the count is shown in the report.
 
+## Amendment 2026-09-27: verifiers must not write into the candidate
+
+The T03 part D evidence showed that verification itself can change the candidate. The test was run with no bytecode cache present:
+- A plain `pytest` run of the acceptance tests wrote `__pycache__` files into the candidate and changed its digest (`ba3f5369...` to `4e89f6c7...`).
+- With `PYTHONDONTWRITEBYTECODE=1`, the digest stayed identical.
+- The fixture copy used by the spike had also committed a `.pyc` file, so generated files polluted the baseline.
+
+**Consequences:**
+- Verification runs with the candidate **read-only**: on a materialized snapshot or inside a sandbox that denies writes to the workspace (ADR-07). Tool-specific settings such as `PYTHONDONTWRITEBYTECODE=1` are a supplement, not the control.
+- Each profile declares the generated paths it expects (bytecode, caches, build output). They are excluded or ignored explicitly, and never silently.
+- The fixture service now ships a `.gitignore` for these paths.
+
 ## Open items
 
 - Git submodules: not tested; declared unsupported for M1.
