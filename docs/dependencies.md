@@ -50,4 +50,4 @@ Transitive:
 
 ## License notes
 
-Two packages, `hypothesis` and `pathspec`, are MPL-2.0, a weak file-level copyleft license. Both are development or build tools. Neither is imported by, linked into or distributed with OpenHarnX. ADR-0002 records how this is treated, pending owner confirmation.
+Two packages, `hypothesis` and `pathspec`, are MPL-2.0, a weak file-level copyleft license. Both are development or build tools. Neither is imported by, linked into or distributed with OpenHarnX. ADR-0002 clause 3, approved by the owner on 2026-09-27, permits them.
