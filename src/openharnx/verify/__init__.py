@@ -47,13 +47,17 @@ def run_obligation(
     run_dir: Path,
     srt: Path | None,
     deny_read: list[str],
+    python: str | None = None,
 ) -> CheckerRun:
     tmp = run_dir / "tmp"
     tmp.mkdir(parents=True, exist_ok=True)
+    python = python or sys.executable
     subs = {
         "candidate": str(candidate),
         "protected": str(protected) if protected else "",
-        "python": sys.executable,
+        "python": python,
+        "bindir": str(Path(python).parent),
+        "tmp": str(tmp),
     }
     argv = [_expand(a, subs) for a in obligation["command"]]
     child_env = {

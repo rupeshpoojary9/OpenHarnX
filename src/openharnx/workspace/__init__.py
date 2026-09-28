@@ -105,7 +105,9 @@ def changed_paths(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
 
 
 def tree_digest(root: Path) -> str:
-    """Digest of a directory of protected material, independent of git."""
+    """Digest of protected material (a file or a directory), independent of git."""
+    if root.is_file():
+        return digest({"entries": [{"path": root.name, "digest": _file_digest(root)}]})
     entries = []
     for p in sorted(root.rglob("*")):
         rel = _norm(str(p.relative_to(root)))

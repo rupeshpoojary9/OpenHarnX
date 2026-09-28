@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 import tomllib
 import uuid
 from dataclasses import asdict
@@ -100,18 +101,24 @@ def accept_contract(cwd: Path, contract_file: Path) -> Record:
             ob.setdefault("env", {})
             if "protected" in ob:
                 src = (contract_file.parent / ob["protected"]).resolve()
-                if not src.is_dir():
+                if not src.exists():
                     raise UsageError(f"protected material not found: {src}")
                 tdig = tree_digest(src)
                 dest = pdir / "protected" / tdig.removeprefix("sha256:")[:16] / src.name
                 if not dest.exists():
-                    shutil.copytree(src, dest, ignore=shutil.ignore_patterns("__pycache__"))
+                    if src.is_file():
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(src, dest)
+                    else:
+                        ignore = shutil.ignore_patterns("__pycache__")
+                        shutil.copytree(src, dest, ignore=ignore)
                 ob["protected_digest"] = tdig
                 ob["protected_store_path"] = str(dest.relative_to(pdir))
                 del ob["protected"]
             obligations.append(ob)
         body = {
             "title": raw["title"],
+            "python": raw.get("python", "unknown"),
             "mode": raw["mode"],
             "change_summary": raw["change_summary"],
             "governance_level": "lite",
@@ -161,6 +168,8 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
         )
         run_id = uuid.uuid4().hex[:12]
         run_dir = pdir / "runs" / run_id
+        python = contract.body.get("python", "unknown")
+        python = str(root / python) if python != "unknown" else sys.executable
         deny_read = ["~/.ssh", str(ohx_home() / "keys")]
 
         observations: list[Observation] = []
@@ -182,6 +191,7 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                     run_dir=run_dir,
                     srt=srt,
                     deny_read=deny_read,
+                    python=python,
                 )
                 outcome, exit_code, out, ms, argv = (
                     r.outcome,

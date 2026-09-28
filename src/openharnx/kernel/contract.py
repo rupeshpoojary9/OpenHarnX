@@ -1,12 +1,12 @@
-"""Semantic validation of a work contract (skeleton: bug-fix mode only)."""
+"""Semantic validation of a work contract."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
 
-MODES = frozenset({"bugfix"})
-KINDS = frozenset({"acceptance", "regression"})
+MODES = frozenset({"bugfix", "task"})
+KINDS = frozenset({"acceptance", "regression", "check"})
 
 
 def _nonempty_str(value: Any) -> bool:
@@ -23,6 +23,10 @@ def validate_contract(raw: Mapping[str, Any]) -> list[str]:
     # The changelog entry is generated from this, so Lite requires it for a bug fix.
     if not _nonempty_str(raw.get("change_summary")):
         errors.append("change_summary: required")
+
+    python = raw.get("python")
+    if python is not None and not _nonempty_str(python):
+        errors.append("python: must be a path")
 
     obligations = raw.get("obligations")
     if not isinstance(obligations, list) or not obligations:
@@ -68,5 +72,5 @@ def validate_contract(raw: Mapping[str, Any]) -> list[str]:
             mandatory_acceptance = True
 
     if not mandatory_acceptance:
-        errors.append("obligations: a bug fix needs at least one mandatory acceptance obligation")
+        errors.append("obligations: at least one mandatory acceptance obligation is required")
     return errors

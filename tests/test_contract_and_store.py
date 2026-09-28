@@ -67,3 +67,16 @@ def test_blobs_are_content_addressed(tmp_path: Path) -> None:
     d = store.put_blob(b"hello")
     assert store.put_blob(b"hello") == d
     assert store.blob_path(d).read_bytes() == b"hello"
+
+
+def test_task_mode_and_check_kind_are_accepted() -> None:
+    raw = _valid()
+    raw["mode"] = "task"
+    raw["obligations"].append({"id": "lint", "kind": "check", "mandatory": True, "command": ["x"]})
+    assert validate_contract(raw) == []
+
+
+def test_unknown_mode_rejected() -> None:
+    raw = _valid()
+    raw["mode"] = "anything"
+    assert any(e.startswith("mode") for e in validate_contract(raw))
