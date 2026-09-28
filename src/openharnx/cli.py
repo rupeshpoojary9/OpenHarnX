@@ -25,6 +25,7 @@ from openharnx.app import (
     new_contract,
     verify,
 )
+from openharnx.app.trace import trace_approve, trace_check, trace_init
 from openharnx.doctor import run_checks
 from openharnx.report import render_markdown
 
@@ -103,6 +104,52 @@ def _cmd_store_check(_: argparse.Namespace) -> int:
     return EXIT_OK if not problems else EXIT_BLOCKED
 
 
+ORDER = [
+    "untracked",
+    "stale",
+    "invalid",
+    "not built",
+    "open",
+    "dropped (not approved)",
+    "verified",
+    "linked",
+    "dropped (approved)",
+]
+
+
+def _cmd_trace_init(args: argparse.Namespace) -> int:
+    path, added, removed = trace_init(Path.cwd(), args.sources, args.out)
+    print(f"wrote {path}: {added} new unit(s), {removed} removed")
+    return EXIT_OK
+
+
+def _cmd_trace_check(args: argparse.Namespace) -> int:
+    report = trace_check(Path.cwd(), args.trace, run=args.run)
+    rank = {s: i for i, s in enumerate(ORDER)}
+    for r in sorted(report.results, key=lambda r: rank.get(r.state, 0)):
+        if r.state in ("verified", "linked", "dropped (approved)") and not args.all:
+            continue
+        text = r.text if len(r.text) <= 70 else r.text[:67] + "..."
+        print(f"{r.id:14} {r.state.upper():24} {text}")
+        if r.reason:
+            print(f"{'':14} {'':24} {r.reason}")
+    summary = ", ".join(f"{n} {s}" for s in ORDER if (n := report.counts.get(s, 0)))
+    print(("trace ok: " if report.ok else "trace BLOCKED: ") + (summary or "no units"))
+    return EXIT_OK if report.ok else EXIT_BLOCKED
+
+
+def _cmd_trace_approve(args: argparse.Namespace) -> int:
+    if not args.yes:
+        print("This records your approval of every unit marked context or excluded.")
+        print("Review them with `ohx trace check --all`, then rerun with --yes.")
+        return EXIT_BLOCKED
+    drops, _ = trace_approve(Path.cwd(), args.trace)
+    for d in drops:
+        print(f"{d.id:14} {d.status:9} {d.note or '':20} {d.text[:60]}")
+    print(f"approved {len(drops)} dropped unit(s)")
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ohx",
@@ -142,6 +189,22 @@ def build_parser() -> argparse.ArgumentParser:
     rep = sub.add_parser("report", help="show the latest report")
     rep.add_argument("--json", action="store_true")
     rep.set_defaults(func=_cmd_report)
+
+    trace = sub.add_parser("trace", help="trace requirements back to their sources")
+    tsub = trace.add_subparsers(dest="trace_command", metavar="<action>")
+    tinit = tsub.add_parser("init", help="split sources into numbered units (merges markings)")
+    tinit.add_argument("sources", nargs="+", help="BRD, decisions or other requirement files")
+    tinit.add_argument("--out", default="trace.toml")
+    tinit.set_defaults(func=_cmd_trace_init)
+    tcheck = tsub.add_parser("check", help="report every unit; blocks on any gap")
+    tcheck.add_argument("--trace", default="trace.toml")
+    tcheck.add_argument("--run", action="store_true", help="run the linked tests")
+    tcheck.add_argument("--all", action="store_true", help="also list covered units")
+    tcheck.set_defaults(func=_cmd_trace_check)
+    tapprove = tsub.add_parser("approve", help="approve the units marked context or excluded")
+    tapprove.add_argument("--trace", default="trace.toml")
+    tapprove.add_argument("--yes", action="store_true")
+    tapprove.set_defaults(func=_cmd_trace_approve)
 
     store = sub.add_parser("store", help="evidence store maintenance")
     ssub = store.add_subparsers(dest="store_command", metavar="<action>")
