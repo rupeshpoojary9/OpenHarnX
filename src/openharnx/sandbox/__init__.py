@@ -46,10 +46,11 @@ def wrap(
 ) -> tuple[list[str], dict[str, str]]:
     """Return the outer command and outer environment for a sandboxed run.
 
-    `env -i` inside the sandbox gives the child exactly `child_env`, so
-    nothing from the caller's environment leaks in (threat T11).
+    The allowlist is applied to srt's own environment, so nothing from the
+    caller's environment reaches the child (threat T11). The child then sees
+    exactly `child_env` plus the proxy settings srt adds for its network
+    allowlist; wiping the environment inside the sandbox would remove those.
     """
-    inner = shlex.join(["env", "-i", *(f"{k}={v}" for k, v in child_env.items()), *argv])
-    outer_env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(Path.home())}
-    outer_env["TMPDIR"] = "/tmp"  # srt's socket path must stay short
+    inner = shlex.join(["env", f"TMPDIR={child_env['TMPDIR']}", *argv])
+    outer_env = {**child_env, "TMPDIR": "/tmp"}  # srt's socket path must stay short
     return [str(srt), "-s", str(profile), "-c", inner], outer_env
