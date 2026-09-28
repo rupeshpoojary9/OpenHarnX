@@ -28,6 +28,15 @@ Dependencies point inward only: interfaces (`cli`, hook) -> application services
 
 ## Working rules
 
+**Every task is verified by OpenHarnX itself (dogfooding):**
+1. Write the acceptance tests first, as a self-contained test file.
+2. `ohx contract new --mode task --title ... --summary ... --acceptance tests/test_<task>.py --accept`. Project checks come from `ohx.toml`.
+3. Implement until `ohx verify --sandbox srt` says READY.
+4. Commit only on READY, with the candidate digest in the commit message. Any edit after verifying makes the report stale: verify again.
+
+Run `ohx` from an **installed copy built from an earlier commit**, never from the working tree, so a change cannot alter the verifier that judges it.
+
+
 - Take one checklist task at a time. Record evidence in `docs/tasks/<task>.md`: commands, environment, results, limits.
 - Add tests with behavior changes. Include negative cases for anything touching identity, gates, authority or persistence.
 - Every new dependency is listed in `docs/dependencies.md` with version, license and purpose. Permissive licenses only (ADR-0002).

@@ -138,6 +138,103 @@ def accept_contract(cwd: Path, contract_file: Path) -> Record:
         store.close()
 
 
+def _toml_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, str):
+        return json.dumps(value)  # a JSON string is a valid TOML basic string
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(v) for v in value) + "]"
+    if isinstance(value, dict):
+        return "{ " + ", ".join(f"{k} = {_toml_value(v)}" for k, v in value.items()) + " }"
+    raise TypeError(f"unsupported TOML value: {value!r}")
+
+
+def _slug(title: str) -> str:
+    words = "".join(c.lower() if c.isalnum() else " " for c in title).split()
+    return "-".join(words)[:48] or "contract"
+
+
+def new_contract(
+    cwd: Path,
+    *,
+    title: str,
+    summary: str,
+    mode: str,
+    acceptance: list[Path],
+    accept: bool = False,
+) -> Path:
+    """Write a numbered contract from project defaults; optionally accept it."""
+    try:
+        root = repo_root(cwd)
+    except NotARepository as exc:
+        raise UsageError(f"not inside a git repository: {cwd}") from exc
+    defaults: dict[str, Any] = {}
+    if (root / "ohx.toml").exists():
+        try:
+            defaults = tomllib.loads((root / "ohx.toml").read_text())
+        except tomllib.TOMLDecodeError as exc:
+            raise UsageError(f"ohx.toml is not valid TOML: {exc}") from exc
+
+    folder = root / "contracts"
+    obligations: list[dict[str, Any]] = []
+    for path in acceptance:
+        path = (cwd / path).resolve()
+        if not path.exists():
+            raise UsageError(f"acceptance tests not found: {path}")
+        obligations.append(
+            {
+                "id": f"acceptance-{path.stem}",
+                "kind": "acceptance",
+                "mandatory": True,
+                "protected": os.path.relpath(path, folder),
+                "command": [
+                    "{python}",
+                    "-m",
+                    "pytest",
+                    "-q",
+                    "-p",
+                    "no:cacheprovider",
+                    "{protected}",
+                ],
+            }
+        )
+    if "obligations" in defaults:
+        obligations += [dict(o) for o in defaults["obligations"]]
+    elif (root / "tests").is_dir():
+        obligations.append(
+            {
+                "id": "tests",
+                "kind": "regression",
+                "mandatory": False,
+                "command": ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests"],
+            }
+        )
+
+    raw: dict[str, Any] = {"title": title, "mode": mode, "change_summary": summary}
+    if "python" in defaults:
+        raw["python"] = defaults["python"]
+    raw["obligations"] = obligations
+    errors = validate_contract(raw)
+    if errors:
+        raise UsageError("contract would not be valid:\n  " + "\n  ".join(errors))
+
+    lines = [f"{k} = {_toml_value(v)}" for k, v in raw.items() if k != "obligations"]
+    for ob in obligations:
+        lines += ["", "[[obligations]]", *(f"{k} = {_toml_value(v)}" for k, v in ob.items())]
+    folder.mkdir(exist_ok=True)
+    number = 1 + max(
+        (int(p.name[:4]) for p in folder.glob("[0-9][0-9][0-9][0-9]-*.toml")), default=0
+    )
+    path = folder / f"{number:04d}-{_slug(title)}.toml"
+    path.write_text("\n".join(lines) + "\n")
+    if accept:
+        accept_contract(cwd, path)
+    return path
+
+
 def _gate_to_dict(gate: GateEvaluation) -> dict[str, Any]:
     data = asdict(gate)
     data["obligations"] = [{**o, "reasons": list(o["reasons"])} for o in data["obligations"]]

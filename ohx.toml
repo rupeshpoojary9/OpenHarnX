@@ -1,0 +1,36 @@
+# OpenHarnX project defaults: added to every contract made with `ohx contract new`.
+# Each check keeps its caches in the run directory ({tmp}) or disables them, so
+# verification never writes into the candidate and can run sandboxed.
+
+python = ".venv/bin/python"
+
+[[obligations]]
+id = "format"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "format", "--check", "--no-cache", "."]
+
+[[obligations]]
+id = "lint"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "check", "--no-cache", "."]
+
+[[obligations]]
+id = "types"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "mypy", "--cache-dir", "{tmp}/mypy"]
+
+[[obligations]]
+id = "layers"
+kind = "check"
+mandatory = true
+command = ["{bindir}/lint-imports", "--no-cache"]
+
+[[obligations]]
+id = "tests"
+kind = "regression"
+mandatory = true
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+timeout_s = 600

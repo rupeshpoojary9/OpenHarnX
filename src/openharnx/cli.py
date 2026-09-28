@@ -22,6 +22,7 @@ from openharnx.app import (
     check_store,
     current_report,
     init_project,
+    new_contract,
     verify,
 )
 from openharnx.doctor import run_checks
@@ -59,6 +60,21 @@ def _cmd_contract_accept(args: argparse.Namespace) -> int:
     for ob in body["obligations"]:
         flag = "mandatory" if ob["mandatory"] else "advisory"
         print(f"  {ob['id']:24} {ob['kind']:11} {flag}")
+    return EXIT_OK
+
+
+def _cmd_contract_new(args: argparse.Namespace) -> int:
+    path = new_contract(
+        Path.cwd(),
+        title=args.title,
+        summary=args.summary,
+        mode=args.mode,
+        acceptance=[Path(p) for p in args.acceptance],
+        accept=args.accept,
+    )
+    print(f"wrote {path}")
+    if args.accept:
+        print("accepted")
     return EXIT_OK
 
 
@@ -105,6 +121,18 @@ def build_parser() -> argparse.ArgumentParser:
     accept = csub.add_parser("accept", help="validate and accept a contract TOML file")
     accept.add_argument("file")
     accept.set_defaults(func=_cmd_contract_accept)
+    new = csub.add_parser("new", help="write a contract from project defaults")
+    new.add_argument("--title", required=True)
+    new.add_argument("--summary", required=True, help="one line; becomes the changelog entry")
+    new.add_argument("--mode", choices=["bugfix", "task"], default="bugfix")
+    new.add_argument(
+        "--acceptance",
+        action="append",
+        required=True,
+        help="test file or folder that proves the change; locked away at acceptance",
+    )
+    new.add_argument("--accept", action="store_true", help="accept it straight away")
+    new.set_defaults(func=_cmd_contract_new)
 
     ver = sub.add_parser("verify", help="verify the current candidate against the contract")
     ver.add_argument("--sandbox", choices=["auto", "srt", "none"], default="auto")
