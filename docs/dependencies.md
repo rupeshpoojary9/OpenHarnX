@@ -4,7 +4,11 @@ Policy: [ADR-0002](adr/0002-dependency-policy.md). Versions are those resolved i
 
 ## Runtime dependencies
 
-None. The `ohx` package currently depends only on the Python standard library.
+| Package | Version | License | Purpose |
+|---|---|---|---|
+| rfc8785 | 0.1.4 | Apache-2.0 (classifier, read 2026-09-28) | RFC 8785 canonical JSON for record digests; pure Python, no dependencies |
+
+Optional, not yet installed: `srt` (sandbox-runtime 0.0.77, Apache-2.0, npm) is found through `OHX_SRT` or `PATH` for sandboxed verification (ADR-0007).
 
 ## Build backend (not shipped)
 

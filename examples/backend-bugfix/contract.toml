@@ -1,0 +1,23 @@
+# Work contract for the fixture bug fix (CONTRACT.md, approved 2026-09-27).
+# Run from a git repository that holds a copy of service/:
+#   ohx init && ohx contract accept <path to this file> && ohx verify
+
+title = "Paginated listing loses the last partial page"
+mode = "bugfix"
+change_summary = "Fix item listing so the last partial page is returned (total_pages rounds up)."
+
+[[obligations]]
+id = "acceptance-E1-E14"
+kind = "acceptance"
+mandatory = true
+protected = "acceptance"   # copied into the store at acceptance; the agent never sees this copy
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "{protected}"]
+env = { FIXTURE_SERVICE_DIR = "{candidate}" }
+timeout_s = 120
+
+[[obligations]]
+id = "unit-tests"
+kind = "regression"
+mandatory = false          # advisory until baseline comparison lands (TDD §8.3)
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests"]
+timeout_s = 120

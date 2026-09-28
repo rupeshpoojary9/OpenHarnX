@@ -7,7 +7,9 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "Rupesh Poojary" }]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "rfc8785>=0.1.4",
+]
 
 [project.scripts]
 ohx = "openharnx.cli:main"
@@ -51,7 +53,18 @@ include_external_packages = true
 name = "Kernel does not depend on outer layers"
 type = "forbidden"
 source_modules = ["openharnx.kernel"]
-forbidden_modules = ["openharnx.cli", "openharnx.doctor"]
+forbidden_modules = ["openharnx.cli", "openharnx.doctor", "openharnx.app"]
+
+[[tool.importlinter.contracts]]
+name = "Layers: interfaces, application, services, kernel"
+type = "layers"
+layers = [
+    "openharnx.cli",
+    "openharnx.app",
+    "openharnx.verify",
+    "openharnx.sandbox | openharnx.store | openharnx.workspace | openharnx.report | openharnx.doctor",
+    "openharnx.kernel",
+]
 
 [[tool.importlinter.contracts]]
 name = "Kernel stays pure: no I/O, clock or randomness"
