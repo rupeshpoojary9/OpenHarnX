@@ -61,7 +61,7 @@ type = "layers"
 layers = [
     "openharnx.cli",
     "openharnx.app",
-    "openharnx.verify",
+    "openharnx.verify | openharnx.agent",
     "openharnx.sandbox | openharnx.store | openharnx.workspace | openharnx.report | openharnx.doctor",
     "openharnx.kernel",
 ]

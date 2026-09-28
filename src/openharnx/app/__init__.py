@@ -241,6 +241,21 @@ def _gate_to_dict(gate: GateEvaluation) -> dict[str, Any]:
     return data
 
 
+def _agent_cost(store: Store, contract_revision: str) -> str:
+    bugs: dict[str, dict[str, Any]] = {}
+    for rec in store.all("bug"):
+        bugs[rec.body["id"]] = rec.body
+    ids = {b["id"] for b in bugs.values() if b.get("contract_revision") == contract_revision}
+    runs = [r.body for r in store.all("agent_run") if r.body["bug"] in ids]
+    if not runs:
+        return "unknown: no agent run recorded"
+    known = [r["cost_usd"] for r in runs if isinstance(r["cost_usd"], (int, float))]
+    text = f"${sum(known):.2f} reported across {len(known)} agent run(s)"
+    if len(known) < len(runs):
+        text += f", plus {len(runs) - len(known)} run(s) with unknown cost"
+    return text
+
+
 def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
     """Capture the candidate, run every obligation, evaluate the gate, write the report."""
     root, pdir, store = _open(cwd)
@@ -347,7 +362,7 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
             "observations": raw_obs,
             "protection": {"verifier": protection, "agent": "unknown: no agent run recorded"},
             "cost": {
-                "agent_work": "unknown: no agent run recorded",
+                "agent_work": _agent_cost(store, contract.revision_id),
                 "overhead": {
                     "model_calls": 0,
                     "verifier_ms": sum(o["duration_ms"] for o in raw_obs),

@@ -25,6 +25,7 @@ from openharnx.app import (
     new_contract,
     verify,
 )
+from openharnx.app.bug import bug_approve, bug_fix, bug_new
 from openharnx.app.trace import trace_approve, trace_check, trace_init
 from openharnx.doctor import run_checks
 from openharnx.report import render_markdown
@@ -150,6 +151,38 @@ def _cmd_trace_approve(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_bug_new(args: argparse.Namespace) -> int:
+    bug, proposal = bug_new(Path.cwd(), args.symptom, sandbox=args.sandbox)
+    body = bug.body
+    print(f"{body['id']}: {body['symptom']}")
+    if proposal:
+        print("\n" + proposal.strip() + "\n")
+    if body["status"] == "proposed":
+        print("The investigation reproduces the bug: its tests fail on the current code.")
+        print(f"If the rule is right: ohx bug approve {body['id']}")
+        return EXIT_OK
+    print(f"Investigation rejected: {body.get('reason', body['status'])}")
+    return EXIT_BLOCKED
+
+
+def _cmd_bug_approve(args: argparse.Namespace) -> int:
+    path = bug_approve(Path.cwd(), args.bug)
+    print(f"approved {args.bug}; contract {path.name} accepted, tests locked")
+    print(f"Next: ohx bug fix {args.bug}")
+    return EXIT_OK
+
+
+def _cmd_bug_fix(args: argparse.Namespace) -> int:
+    report = bug_fix(
+        Path.cwd(), args.bug, sandbox=args.sandbox, attempts=args.attempts, budget_usd=args.budget
+    )
+    if not report:
+        print(f"{args.bug}: budget of ${args.budget:.2f} already spent; no attempt made")
+        return EXIT_BLOCKED
+    print(render_markdown(report))
+    return EXIT_OK if report["readiness"] == "ready" else EXIT_BLOCKED
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ohx",
@@ -189,6 +222,22 @@ def build_parser() -> argparse.ArgumentParser:
     rep = sub.add_parser("report", help="show the latest report")
     rep.add_argument("--json", action="store_true")
     rep.set_defaults(func=_cmd_report)
+
+    bug = sub.add_parser("bug", help="issue to verified fix, driven through an agent")
+    bsub = bug.add_subparsers(dest="bug_command", metavar="<action>")
+    bnew = bsub.add_parser("new", help="report a bug; the agent investigates read-only")
+    bnew.add_argument("symptom", help="what is wrong, as a user would report it")
+    bnew.add_argument("--sandbox", choices=["srt", "none"], default="srt")
+    bnew.set_defaults(func=_cmd_bug_new)
+    bapp = bsub.add_parser("approve", help="accept the proposed rule and tests as the contract")
+    bapp.add_argument("bug")
+    bapp.set_defaults(func=_cmd_bug_approve)
+    bfix = bsub.add_parser("fix", help="assign the contract to the agent and verify")
+    bfix.add_argument("bug")
+    bfix.add_argument("--sandbox", choices=["srt", "none"], default="srt")
+    bfix.add_argument("--attempts", type=int, default=2)
+    bfix.add_argument("--budget", type=float, default=2.0, help="USD cap across this bug's runs")
+    bfix.set_defaults(func=_cmd_bug_fix)
 
     trace = sub.add_parser("trace", help="trace requirements back to their sources")
     tsub = trace.add_subparsers(dest="trace_command", metavar="<action>")
