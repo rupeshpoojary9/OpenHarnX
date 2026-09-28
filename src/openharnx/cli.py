@@ -20,8 +20,8 @@ from openharnx.app import (
     UsageError,
     accept_contract,
     check_store,
+    current_report,
     init_project,
-    latest_report,
     verify,
 )
 from openharnx.doctor import run_checks
@@ -74,7 +74,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
-    report = latest_report(Path.cwd()).body
+    report = current_report(Path.cwd())
     print(json.dumps(report, indent=2) if args.json else render_markdown(report))
     return EXIT_OK if report["readiness"] == "ready" else EXIT_BLOCKED
 

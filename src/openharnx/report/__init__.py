@@ -15,9 +15,17 @@ READINESS = {
 def render_markdown(report: dict[str, Any]) -> str:
     gate = report["gate"]
     cand = report["candidate"]
-    lines = [
-        f"# OpenHarnX report: {report['readiness'].upper()}",
-        "",
+    lines = [f"# OpenHarnX report: {report['readiness'].upper()}", ""]
+    if report["readiness"] == "stale":
+        lines += [
+            f"This report was {report['verified_readiness']} for an earlier state. Run"
+            " `ohx verify` again.",
+            "",
+            *[f"- {reason}" for reason in report["stale_reasons"]],
+            *[f"- changed: {path}" for path in report.get("stale_paths", [])],
+            "",
+        ]
+    lines += [
         f"- Contract: {report['contract']['title']} ({report['contract']['revision_id']})",
         f"- Candidate: `{cand['digest']}` (base commit {cand['base_commit']})",
         f"- Gate: **{gate['result']}**, evidence coverage {gate['coverage_percent']}%",

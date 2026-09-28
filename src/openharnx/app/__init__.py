@@ -265,15 +265,35 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
         store.close()
 
 
-def latest_report(cwd: Path) -> Record:
-    _, _, store = _open(cwd)
+def current_report(cwd: Path) -> dict[str, Any]:
+    """The latest report, re-checked against the repository and contract as they are now.
+
+    A stored report is evidence about one candidate under one contract revision.
+    If either has changed, it is shown as stale, never as ready.
+    """
+    root, _, store = _open(cwd)
     try:
         rec = store.latest("assurance_report")
+        if rec is None:
+            raise UsageError("no report yet; run `ohx verify`")
+        report = dict(rec.body)
+        reasons: list[str] = []
+        now_manifest = build_manifest(root)
+        if now_manifest["digest"] != report["candidate"]["digest"]:
+            reasons.append("subject_changed: the repository differs from the verified candidate")
+            then = store.get(report["candidate"]["revision_id"])
+            if then is not None:
+                report["stale_paths"] = changed_paths(then.body, now_manifest)
+        contract = store.latest("contract")
+        if contract is None or contract.revision_id != report["contract"]["revision_id"]:
+            reasons.append("manifest_revised: a newer contract revision has been accepted")
     finally:
         store.close()
-    if rec is None:
-        raise UsageError("no report yet; run `ohx verify`")
-    return rec
+    if reasons:
+        report["verified_readiness"] = report["readiness"]
+        report["readiness"] = "stale"
+        report["stale_reasons"] = reasons
+    return report
 
 
 def check_store(cwd: Path) -> list[str]:

@@ -132,3 +132,29 @@ def test_sandboxed_verification(repo: Path, capsys: pytest.CaptureFixture[str]) 
     protection = report["protection"]
     assert isinstance(protection, dict)
     assert str(protection["verifier"]).startswith("enforced")
+
+
+def test_report_is_stale_after_source_edit(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    _apply(repo, VARIANTS["valid_fix"][0])
+    assert main(["verify", "--sandbox", "none"]) == EXIT_OK
+    with open(repo / "items.py", "a") as fh:
+        fh.write("# later edit\n")
+    capsys.readouterr()
+    assert main(["report", "--json"]) == EXIT_BLOCKED
+    report = json.loads(capsys.readouterr().out)
+    assert report["readiness"] == "stale"
+    assert report["verified_readiness"] == "ready"
+    assert report["stale_paths"] == ["items.py"]
+
+
+def test_report_is_stale_after_new_contract(repo: Path) -> None:
+    _apply(repo, VARIANTS["valid_fix"][0])
+    assert main(["verify", "--sandbox", "none"]) == EXIT_OK
+    assert main(["contract", "accept", str(CONTRACT)]) == EXIT_OK
+    assert main(["report"]) == EXIT_BLOCKED
+
+
+def test_report_is_ready_when_nothing_changed(repo: Path) -> None:
+    _apply(repo, VARIANTS["valid_fix"][0])
+    assert main(["verify", "--sandbox", "none"]) == EXIT_OK
+    assert main(["report"]) == EXIT_OK
