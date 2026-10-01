@@ -12,7 +12,7 @@ from typing import Any
 
 from openharnx.kernel.canonical import digest
 
-MANIFEST_VERSION = "1"
+MANIFEST_VERSION = "2"  # 2: symlink entries record what they resolve to (STATE-14)
 DEFAULT_EXCLUDES = (".openharnx/",)
 
 
@@ -54,6 +54,21 @@ def root_commit(repo: Path) -> str:
     return lines[0] if proc.returncode == 0 and lines else "unknown"
 
 
+def _resolved(link: Path) -> dict[str, Any]:
+    """What a symlink points at, by content, so changing the target changes the identity."""
+    try:
+        real = link.resolve(strict=True)
+    except FileNotFoundError:
+        return {"type": "missing"}
+    except (OSError, RuntimeError):
+        return {"type": "unresolvable"}  # a loop, or no permission
+    if real.is_file():
+        return {"type": "file", "digest": _file_digest(real)}
+    if real.is_dir():
+        return {"type": "directory", "digest": tree_digest(real)}
+    return {"type": "other"}
+
+
 def build_manifest(repo: Path, excludes: tuple[str, ...] = DEFAULT_EXCLUDES) -> dict[str, Any]:
     """Tracked, modified and untracked-but-not-ignored files, bound by content digest."""
     listed = _git(repo, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
@@ -69,7 +84,14 @@ def build_manifest(repo: Path, excludes: tuple[str, ...] = DEFAULT_EXCLUDES) -> 
             entries.append({"path": rel, "type": "deleted"})
             continue
         if stat.S_ISLNK(st.st_mode):
-            entries.append({"path": rel, "type": "symlink", "target": _norm(os.readlink(full))})
+            entries.append(
+                {
+                    "path": rel,
+                    "type": "symlink",
+                    "target": _norm(os.readlink(full)),
+                    "resolved": _resolved(full),
+                }
+            )
         elif stat.S_ISREG(st.st_mode):
             entries.append(
                 {

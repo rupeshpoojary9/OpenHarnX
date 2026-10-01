@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ class CheckerRun:
     output: bytes
     duration_ms: int
     argv: list[str]
+    sandbox_started: bool | None = None  # None: no sandbox requested
 
 
 def _expand(value: str, subs: dict[str, str]) -> str:
@@ -99,8 +101,10 @@ def run_obligation(
         profile = write_profile(
             run_dir / f"verifier-{obligation['id']}.json", verifier_profile(tmp, deny_read)
         )
-        cmd, env = wrap(srt, profile, argv, child_env)
+        started: Path | None = tmp / f"started-{uuid.uuid4().hex}"
+        cmd, env = wrap(srt, profile, argv, child_env, started=started)
     else:
+        started = None
         cmd, env = argv, child_env
 
     start = time.monotonic()
@@ -118,5 +122,10 @@ def run_obligation(
     except OSError as exc:
         return CheckerRun("unavailable", None, str(exc).encode(), 0, argv)
     elapsed = int((time.monotonic() - start) * 1000)
+    output = proc.stdout + proc.stderr
+    if started is not None and not started.exists():
+        # The sandbox never ran the checker, so its exit code is not a result (VERIFY-12).
+        output += b"\nohx: the sandbox did not start the checker\n"
+        return CheckerRun("unavailable", proc.returncode, output, elapsed, argv, False)
     outcome = "crash" if proc.returncode < 0 else classify(proc.returncode)
-    return CheckerRun(outcome, proc.returncode, proc.stdout + proc.stderr, elapsed, argv)
+    return CheckerRun(outcome, proc.returncode, output, elapsed, argv, started is not None)

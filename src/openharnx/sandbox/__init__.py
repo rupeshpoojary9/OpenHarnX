@@ -42,7 +42,11 @@ def write_profile(path: Path, profile: dict[str, object]) -> Path:
 
 
 def wrap(
-    srt: Path, profile: Path, argv: list[str], child_env: dict[str, str]
+    srt: Path,
+    profile: Path,
+    argv: list[str],
+    child_env: dict[str, str],
+    started: Path | None = None,
 ) -> tuple[list[str], dict[str, str]]:
     """Return the outer command and outer environment for a sandboxed run.
 
@@ -50,7 +54,13 @@ def wrap(
     caller's environment reaches the child (threat T11). The child then sees
     exactly `child_env` plus the proxy settings srt adds for its network
     allowlist; wiping the environment inside the sandbox would remove those.
+
+    With `started`, that file is created inside the sandbox just before the
+    command runs; if it is missing afterwards, srt never ran the command and
+    its exit code says nothing about the command (VERIFY-12).
     """
     inner = shlex.join(["env", f"TMPDIR={child_env['TMPDIR']}", *argv])
+    if started is not None:
+        inner = shlex.join(["touch", str(started)]) + " && exec " + inner
     outer_env = {**child_env, "TMPDIR": "/tmp"}  # srt's socket path must stay short
     return [str(srt), "-s", str(profile), "-c", inner], outer_env

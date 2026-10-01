@@ -85,8 +85,8 @@ def init_project(cwd: Path) -> tuple[Path, Record]:
 
 def accept_contract(cwd: Path, contract_file: Path) -> Record:
     try:
-        raw = tomllib.loads(contract_file.read_text())
-    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raw = tomllib.loads(contract_file.read_text(encoding="utf-8"))  # TOML is UTF-8
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
         raise UsageError(f"cannot read contract: {exc}") from exc
     errors = validate_contract(raw)
     if errors:
@@ -144,7 +144,9 @@ def _toml_value(value: Any) -> str:
     if isinstance(value, int):
         return str(value)
     if isinstance(value, str):
-        return json.dumps(value)  # a JSON string is a valid TOML basic string
+        # A JSON string is a TOML basic string once characters are kept literal: JSON's
+        # surrogate-pair escapes for emoji are invalid TOML (UX-10), and DEL must be escaped.
+        return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007F")
     if isinstance(value, list):
         return "[" + ", ".join(_toml_value(v) for v in value) + "]"
     if isinstance(value, dict):
@@ -174,7 +176,7 @@ def new_contract(
     defaults: dict[str, Any] = {}
     if (root / "ohx.toml").exists():
         try:
-            defaults = tomllib.loads((root / "ohx.toml").read_text())
+            defaults = tomllib.loads((root / "ohx.toml").read_text(encoding="utf-8"))
         except tomllib.TOMLDecodeError as exc:
             raise UsageError(f"ohx.toml is not valid TOML: {exc}") from exc
 
@@ -229,7 +231,7 @@ def new_contract(
         (int(p.name[:4]) for p in folder.glob("[0-9][0-9][0-9][0-9]-*.toml")), default=0
     )
     path = folder / f"{number:04d}-{_slug(title)}.toml"
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     if accept:
         accept_contract(cwd, path)
     return path
@@ -286,9 +288,11 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
 
         observations: list[Observation] = []
         raw_obs: list[dict[str, Any]] = []
+        not_started = 0
         for ob in contract.body["obligations"]:
             protected = None
             note = ""
+            ob_protection = protection
             if "protected_store_path" in ob:
                 protected = pdir / ob["protected_store_path"]
                 if tree_digest(protected) != ob["protected_digest"]:
@@ -312,6 +316,10 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                     r.duration_ms,
                     r.argv,
                 )
+                if r.sandbox_started is False:
+                    not_started += 1
+                    note = "the srt sandbox did not start the checker"
+                    ob_protection = "not enforced: the srt sandbox did not start this checker"
             raw_obs.append(
                 {
                     "obligation_id": ob["id"],
@@ -324,8 +332,13 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                     "argv": argv,
                     "output_blob": store.put_blob(out),
                     "producer": "openharnx.verify",
-                    "protection": protection,
+                    "protection": ob_protection,
                 }
+            )
+        if not_started:
+            protection = (
+                f"not enforced: the srt sandbox did not start {not_started} of"
+                f" {len(raw_obs)} checker(s)"
             )
 
         after = build_manifest(root)
