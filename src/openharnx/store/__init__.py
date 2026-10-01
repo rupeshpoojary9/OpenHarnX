@@ -61,7 +61,9 @@ class Store:
     def __init__(self, root: Path) -> None:
         self.root = root
         root.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(root / "store.sqlite")
+        # Autocommit mode, so `append` controls its own transaction; concurrent
+        # writers wait for the write lock instead of failing (STATE-13).
+        self.db = sqlite3.connect(root / "store.sqlite", timeout=60, isolation_level=None)
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA synchronous=FULL")
         self.db.executescript(_SCHEMA)
@@ -107,18 +109,21 @@ class Store:
     ) -> Record:
         content_digest = digest(body)
         key = idempotency_key or f"{entity_type}:{uuid.uuid4()}"
-        existing = self.db.execute(
-            "SELECT revision_id FROM events WHERE idempotency_key = ?", (key,)
-        ).fetchone()
-        if existing:
-            found = self.get(existing[0])
-            assert found is not None
-            return found
-
         entity_id = entity_id or f"urn:ohx:{entity_type}:{uuid.uuid4()}"
         revision_id = f"urn:ohx:rev:{uuid.uuid4()}"
         event_id = f"urn:ohx:event:{uuid.uuid4()}"
-        with self.db:
+        # The idempotency check and the chain head are read under the write lock,
+        # so no other writer can link to the same predecessor (STATE-13).
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            existing = self.db.execute(
+                "SELECT revision_id FROM events WHERE idempotency_key = ?", (key,)
+            ).fetchone()
+            if existing:
+                self.db.execute("COMMIT")
+                found = self.get(existing[0])
+                assert found is not None
+                return found
             row = self.db.execute("SELECT hash FROM events ORDER BY seq DESC LIMIT 1").fetchone()
             prev = row[0] if row else GENESIS
             event = {
@@ -150,6 +155,11 @@ class Store:
                 "INSERT INTO revisions VALUES (?, ?, ?, ?, ?)",
                 (revision_id, entity_id, entity_type, content_digest, json.dumps(body)),
             )
+            self.db.execute("COMMIT")
+        except BaseException:
+            if self.db.in_transaction:
+                self.db.execute("ROLLBACK")
+            raise
         return Record(entity_type, entity_id, revision_id, content_digest, now, body)
 
     def _record(self, row: tuple[Any, ...]) -> Record:

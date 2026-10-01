@@ -68,6 +68,7 @@ In M1 one person holds every human role, but the operating system separates the 
 | T16 | Budget overrun | Ledger records usage; enforcement is M2 | **Detected** only in M1 | COST-01 to COST-05 |
 | T17 | A candidate file replaces the checker or a module it imports (VERIFY-11: a `pytest.py` turned BLOCKED into READY, also under srt) | `{python} -m <module>` checkers start with `-P` through a launcher; the module must be installed outside the candidate; the candidate is appended last to `sys.path` | **Prevented** for `-m` checkers (added 2026-10-01) | `tests/test_checker_shadowing.py`, contract 0007 |
 | T18 | The interpreter and installed packages live inside the candidate directory (`.venv`), are git-ignored and so outside the candidate digest; an agent could edit the installed checker | None yet | **Open** (found 2026-10-01, T77 item 10) | Report line "ignored file(s) present and not in the candidate identity" |
+| T19 | Concurrent writers fork the evidence hash chain or record one idempotency key twice (STATE-13) | Idempotency check and chain head read inside `BEGIN IMMEDIATE`; writers wait on the lock | **Prevented** on a local file system (added 2026-10-01) | `tests/test_store_concurrency.py`, contract 0008 |
 
 ## Operational requirements that follow
 

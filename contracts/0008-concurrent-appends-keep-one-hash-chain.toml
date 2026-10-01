@@ -1,0 +1,42 @@
+title = "Concurrent appends keep one hash chain"
+mode = "task"
+change_summary = "Read the chain head and check idempotency inside one immediate write transaction, so concurrent writers serialize and the hash chain never forks."
+python = ".venv/bin/python"
+
+[[obligations]]
+id = "acceptance-test_store_concurrency"
+kind = "acceptance"
+mandatory = true
+protected = "../tests/test_store_concurrency.py"
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "{protected}"]
+
+[[obligations]]
+id = "format"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "format", "--check", "--no-cache", "."]
+
+[[obligations]]
+id = "lint"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "check", "--no-cache", "."]
+
+[[obligations]]
+id = "types"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "mypy", "--cache-dir", "{tmp}/mypy"]
+
+[[obligations]]
+id = "layers"
+kind = "check"
+mandatory = true
+command = ["{bindir}/lint-imports", "--no-cache"]
+
+[[obligations]]
+id = "tests"
+kind = "regression"
+mandatory = true
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+timeout_s = 600
