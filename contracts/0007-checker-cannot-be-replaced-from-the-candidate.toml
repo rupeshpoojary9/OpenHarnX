@@ -1,0 +1,42 @@
+title = "Checker cannot be replaced from the candidate"
+mode = "task"
+change_summary = "Run Python checkers so no file in the candidate can stand in for the checker or a module it imports; project code stays importable."
+python = ".venv/bin/python"
+
+[[obligations]]
+id = "acceptance-test_checker_shadowing"
+kind = "acceptance"
+mandatory = true
+protected = "../tests/test_checker_shadowing.py"
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "{protected}"]
+
+[[obligations]]
+id = "format"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "format", "--check", "--no-cache", "."]
+
+[[obligations]]
+id = "lint"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "check", "--no-cache", "."]
+
+[[obligations]]
+id = "types"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "mypy", "--cache-dir", "{tmp}/mypy"]
+
+[[obligations]]
+id = "layers"
+kind = "check"
+mandatory = true
+command = ["{bindir}/lint-imports", "--no-cache"]
+
+[[obligations]]
+id = "tests"
+kind = "regression"
+mandatory = true
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+timeout_s = 600

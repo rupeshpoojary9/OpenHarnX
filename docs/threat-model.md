@@ -66,6 +66,8 @@ In M1 one person holds every human role, but the operating system separates the 
 | T14 | Malicious skills | Skill supply chain (tiers, scans, sandbox trials, permission intersection) | **Out of scope for M1** (no skill loading); M2 | PRD 19 TEAM-23 to TEAM-31 |
 | T15 | Loss of human work | Read-only inspection; no reset, stash or checkout | **Prevented** in tests | ADR-0005 read-only test |
 | T16 | Budget overrun | Ledger records usage; enforcement is M2 | **Detected** only in M1 | COST-01 to COST-05 |
+| T17 | A candidate file replaces the checker or a module it imports (VERIFY-11: a `pytest.py` turned BLOCKED into READY, also under srt) | `{python} -m <module>` checkers start with `-P` through a launcher; the module must be installed outside the candidate; the candidate is appended last to `sys.path` | **Prevented** for `-m` checkers (added 2026-10-01) | `tests/test_checker_shadowing.py`, contract 0007 |
+| T18 | The interpreter and installed packages live inside the candidate directory (`.venv`), are git-ignored and so outside the candidate digest; an agent could edit the installed checker | None yet | **Open** (found 2026-10-01, T77 item 10) | Report line "ignored file(s) present and not in the candidate identity" |
 
 ## Operational requirements that follow
 
@@ -81,4 +83,5 @@ In M1 one person holds every human role, but the operating system separates the 
 - **Network allowlist for agents:** it allows the model provider's domains, which an agent could still use to send data. That is inherent to using a hosted model and is declared, not prevented.
 - **Platforms:** Linux and Windows sandbox paths are untested.
 - **Kernel and sandbox vulnerabilities** are out of scope.
+- **Candidate code inside the checker (T17 residual):** a `conftest.py`, pytest plugin or `addopts` setting in the candidate still runs inside pytest and can change its result; that is T77 item 9 and owner proposal 2. A module the checker imports only optionally, and that is installed nowhere, can still be supplied by the candidate. Commands that are not `{python} -m` (console scripts such as `{bindir}/lint-imports`) are not rewritten; they do not put the candidate first on `sys.path`, but they are not covered by the T17 tests.
 - **Deliberate adversarial agents** probing the policy over long sessions were not tested; the suite tests known techniques only.

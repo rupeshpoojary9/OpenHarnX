@@ -28,6 +28,33 @@ def _expand(value: str, subs: dict[str, str]) -> str:
     return value
 
 
+# Exit code of the launcher when the checker module is not installed outside the candidate.
+EXIT_CHECKER_IN_CANDIDATE = 120
+
+# Runs `{python} -m <module>` without letting the candidate supply the checker (VERIFY-11).
+# Started with -P, so the candidate is not first on sys.path. The module must resolve
+# before the candidate is added; the candidate is then appended last, so project code
+# stays importable but cannot replace the checker or anything it imports from the
+# interpreter's own paths.
+_LAUNCHER = (
+    "import importlib.util, os, runpy, sys\n"
+    "m = sys.argv[1]\n"
+    "if importlib.util.find_spec(m.partition('.')[0]) is None:\n"
+    "    sys.stderr.write(f'ohx: checker {m!r} is not installed outside the candidate\\n')\n"
+    f"    raise SystemExit({EXIT_CHECKER_IN_CANDIDATE})\n"
+    "sys.path.append(os.getcwd())\n"
+    "sys.argv = sys.argv[1:]\n"
+    "runpy.run_module(m, run_name='__main__', alter_sys=True)\n"
+)
+
+
+def guard_module_run(argv: list[str], python: str) -> list[str]:
+    """Rewrite `<python> -m <module> args` to run through the launcher; leave others alone."""
+    if len(argv) >= 3 and argv[0] == python and argv[1] == "-m":
+        return [python, "-P", "-c", _LAUNCHER, *argv[2:]]
+    return argv
+
+
 def classify(exit_code: int) -> str:
     # pytest conventions: 0 passed, 1 tests failed, 5 nothing collected.
     if exit_code == 0:
@@ -59,7 +86,7 @@ def run_obligation(
         "bindir": str(Path(python).parent),
         "tmp": str(tmp),
     }
-    argv = [_expand(a, subs) for a in obligation["command"]]
+    argv = guard_module_run([_expand(a, subs) for a in obligation["command"]], python)
     child_env = {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "HOME": str(Path.home()),
