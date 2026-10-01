@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from openharnx.environment import LOCKFILE, EnvironmentUnavailable, ensure
 from openharnx.kernel.canonical import digest
 from openharnx.kernel.contract import validate_contract
 from openharnx.kernel.gate import GateEvaluation, Obligation, Observation, evaluate_gate
@@ -116,6 +117,7 @@ def accept_contract(cwd: Path, contract_file: Path) -> Record:
                 ob["protected_store_path"] = str(dest.relative_to(pdir))
                 del ob["protected"]
             obligations.append(ob)
+        environment = _lock_environment(raw, pdir, repo_root(cwd))
         body = {
             "title": raw["title"],
             "python": raw.get("python", "unknown"),
@@ -125,6 +127,7 @@ def accept_contract(cwd: Path, contract_file: Path) -> Record:
             "policy_version": "lite-1",
             "documentation_obligations": ["assurance_report", "changelog_entry"],
             "obligations": obligations,
+            **({"environment": environment} if environment else {}),
             "status": "accepted",
         }
         previous = store.latest("contract")
@@ -218,6 +221,8 @@ def new_contract(
     raw: dict[str, Any] = {"title": title, "mode": mode, "change_summary": summary}
     if "python" in defaults:
         raw["python"] = defaults["python"]
+    if "environment" in defaults:
+        raw["environment"] = defaults["environment"]
     raw["obligations"] = obligations
     errors = validate_contract(raw)
     if errors:
@@ -235,6 +240,42 @@ def new_contract(
     if accept:
         accept_contract(cwd, path)
     return path
+
+
+class _EnvironmentChanged(Exception):
+    """The candidate's lockfile, or its accepted copy, differs from what was accepted."""
+
+
+def _lock_environment(raw: dict[str, Any], pdir: Path, root: Path) -> dict[str, Any] | None:
+    """At acceptance, lock `uv.lock` like a protected test (T77 item 10)."""
+    if raw.get("environment") is None:
+        return None
+    lockfile = root / LOCKFILE
+    if not lockfile.is_file():
+        raise UsageError(f'environment = "uv" needs {LOCKFILE} in the repository root')
+    tdig = tree_digest(lockfile)
+    dest = pdir / "protected" / tdig.removeprefix("sha256:")[:16] / LOCKFILE
+    if not dest.exists():
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(lockfile, dest)
+    return {
+        "kind": raw["environment"],
+        "lock_digest": tdig,
+        "lock_store_path": str(dest.relative_to(pdir)),
+    }
+
+
+def _checker_environment(environment: dict[str, Any], pdir: Path, root: Path) -> Path:
+    """The protected environment's interpreter; nothing from the candidate's `.venv`."""
+    copy = pdir / environment["lock_store_path"]
+    if not copy.is_file() or tree_digest(copy) != environment["lock_digest"]:
+        raise _EnvironmentChanged(f"the accepted copy of {LOCKFILE} changed in the store")
+    lockfile = root / LOCKFILE
+    if not lockfile.is_file() or tree_digest(lockfile) != environment["lock_digest"]:
+        raise _EnvironmentChanged(
+            f"{LOCKFILE} changed since contract acceptance; accept a contract revision"
+        )
+    return ensure(pdir / "envs", copy, root).python
 
 
 def _gate_to_dict(gate: GateEvaluation) -> dict[str, Any]:
@@ -285,6 +326,15 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
         python = contract.body.get("python", "unknown")
         python = str(root / python) if python != "unknown" else sys.executable
         deny_read = ["~/.ssh", str(ohx_home() / "keys")]
+        env_outcome, env_note = "", ""
+        environment = contract.body.get("environment")
+        if environment:
+            try:
+                python = str(_checker_environment(environment, pdir, root))
+            except _EnvironmentChanged as exc:
+                env_outcome, env_note = "invalid", str(exc)
+            except EnvironmentUnavailable as exc:
+                env_outcome, env_note = "unavailable", f"checker environment unavailable: {exc}"
 
         observations: list[Observation] = []
         raw_obs: list[dict[str, Any]] = []
@@ -297,7 +347,10 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                 protected = pdir / ob["protected_store_path"]
                 if tree_digest(protected) != ob["protected_digest"]:
                     note = "protected material changed since contract acceptance"
-            if note:
+            if env_note:
+                outcome, exit_code, out, ms, argv = env_outcome, None, b"", 0, ob["command"]
+                note = env_note
+            elif note:
                 outcome, exit_code, out, ms, argv = "invalid", None, b"", 0, ob["command"]
             else:
                 r = run_obligation(
@@ -385,6 +438,7 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
             "limitations": [
                 f"{before['ignored_present']} ignored file(s) present and not in the candidate"
                 " identity",
+                *_interpreter_limitations(environment, python, root),
                 "Observations are not yet signed (walking skeleton)",
                 "Regression failures are not yet compared with a baseline (walking skeleton)",
             ],
@@ -398,6 +452,19 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
         return rec, run_dir
     finally:
         store.close()
+
+
+def _interpreter_limitations(
+    environment: dict[str, Any] | None, python: str, root: Path
+) -> list[str]:
+    """Name the blind spot when checkers ran with an interpreter from the candidate."""
+    if environment or not Path(python).is_relative_to(root):
+        return []
+    return [
+        f"Checkers ran with an interpreter inside the candidate ({python}), usually a .venv"
+        " that is git-ignored and outside the candidate identity, so changes to it are not"
+        ' detected; set environment = "uv" in ohx.toml'
+    ]
 
 
 def current_report(cwd: Path) -> dict[str, Any]:
@@ -443,6 +510,15 @@ def _integrity_problems(pdir: Path, store: Store) -> list[str]:
     problems = store.check()
     seen: set[str] = set()
     for contract in store.all("contract"):
+        environment = contract.body.get("environment")
+        if environment and environment["lock_store_path"] not in seen:
+            rel = environment["lock_store_path"]
+            seen.add(rel)
+            copy = pdir / rel
+            if not copy.is_file():
+                problems.append(f"protected copy {rel} is missing")
+            elif tree_digest(copy) != environment["lock_digest"]:
+                problems.append(f"protected copy {rel} changed since contract acceptance")
         for ob in contract.body["obligations"]:
             rel = ob.get("protected_store_path")
             if rel is None or rel in seen:

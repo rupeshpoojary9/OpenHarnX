@@ -1,11 +1,14 @@
-# OpenHarnX project defaults: added to every contract made with `ohx contract new`.
-# Each check keeps its caches in the run directory ({tmp}) or disables them, so
-# verification never writes into the candidate and can run sandboxed.
-
+title = "Checkers run from a protected environment"
+mode = "task"
+change_summary = "With environment uv, checkers run from an environment OpenHarnX builds from the accepted uv.lock in its own store; a changed lockfile runs nothing; otherwise the report names the .venv blind spot."
 python = ".venv/bin/python"
-# Checkers run from an environment built from the accepted uv.lock in the OpenHarnX
-# store, not from .venv (T77 item 10). {python} and {bindir} point there.
-environment = "uv"
+
+[[obligations]]
+id = "acceptance-test_protected_environment"
+kind = "acceptance"
+mandatory = true
+protected = "../tests/test_protected_environment.py"
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "{protected}"]
 
 [[obligations]]
 id = "format"

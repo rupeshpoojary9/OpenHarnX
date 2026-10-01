@@ -7,6 +7,7 @@ from typing import Any
 
 MODES = frozenset({"bugfix", "task"})
 KINDS = frozenset({"acceptance", "regression", "check"})
+ENVIRONMENTS = frozenset({"uv"})
 
 
 def _nonempty_str(value: Any) -> bool:
@@ -27,6 +28,9 @@ def validate_contract(raw: Mapping[str, Any]) -> list[str]:
     python = raw.get("python")
     if python is not None and not _nonempty_str(python):
         errors.append("python: must be a path")
+    environment = raw.get("environment")
+    if environment is not None and environment not in ENVIRONMENTS:
+        errors.append(f"environment: must be one of {sorted(ENVIRONMENTS)}")
 
     obligations = raw.get("obligations")
     if not isinstance(obligations, list) or not obligations:
