@@ -105,7 +105,10 @@ def test_tampered_protected_copy_makes_result_unknown(
     target.write_text("def test_always_passes():\n    assert True\n")
     assert main(["verify", "--sandbox", "none"]) == EXIT_BLOCKED
     report = _report(capsys)
-    assert report["readiness"] == "unknown"
+    # The verdict was unknown; `ohx report` now also re-checks the protected copy
+    # and shows the evidence as invalid (T77 item 6, GATE-10).
+    assert report["verified_readiness"] == "unknown"
+    assert report["readiness"] == "invalid"
 
 
 def test_store_chain_is_intact_after_runs(repo: Path) -> None:

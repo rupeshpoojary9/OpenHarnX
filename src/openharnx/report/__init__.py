@@ -16,7 +16,15 @@ def render_markdown(report: dict[str, Any]) -> str:
     gate = report["gate"]
     cand = report["candidate"]
     lines = [f"# OpenHarnX report: {report['readiness'].upper()}", ""]
-    if report["readiness"] == "stale":
+    if report.get("integrity_problems"):
+        lines += [
+            f"This report was {report['verified_readiness']}, but its evidence no longer"
+            " checks out, so it cannot be trusted. Run `ohx store check`, then `ohx verify`.",
+            "",
+            *[f"- {problem}" for problem in report["integrity_problems"]],
+            "",
+        ]
+    elif report["readiness"] == "stale":
         lines += [
             f"This report was {report['verified_readiness']} for an earlier state. Run"
             " `ohx verify` again.",

@@ -391,9 +391,10 @@ def current_report(cwd: Path) -> dict[str, Any]:
     """The latest report, re-checked against the repository and contract as they are now.
 
     A stored report is evidence about one candidate under one contract revision.
-    If either has changed, it is shown as stale, never as ready.
+    If either has changed, it is shown as stale, never as ready. If the store, an
+    evidence file or a protected copy fails its integrity check, it is invalid.
     """
-    root, _, store = _open(cwd)
+    root, pdir, store = _open(cwd)
     try:
         rec = store.latest("assurance_report")
         if rec is None:
@@ -409,18 +410,42 @@ def current_report(cwd: Path) -> dict[str, Any]:
         contract = store.latest("contract")
         if contract is None or contract.revision_id != report["contract"]["revision_id"]:
             reasons.append("manifest_revised: a newer contract revision has been accepted")
+        problems = _integrity_problems(pdir, store)
     finally:
         store.close()
-    if reasons:
+    if problems:
+        # Evidence that cannot be re-checked outranks staleness (GATE-09, STATE-15, GATE-10).
+        report["verified_readiness"] = report["readiness"]
+        report["readiness"] = "invalid"
+        report["integrity_problems"] = problems
+    elif reasons:
         report["verified_readiness"] = report["readiness"]
         report["readiness"] = "stale"
         report["stale_reasons"] = reasons
     return report
 
 
+def _integrity_problems(pdir: Path, store: Store) -> list[str]:
+    """Store records and evidence files, plus every accepted protected copy."""
+    problems = store.check()
+    seen: set[str] = set()
+    for contract in store.all("contract"):
+        for ob in contract.body["obligations"]:
+            rel = ob.get("protected_store_path")
+            if rel is None or rel in seen:
+                continue
+            seen.add(rel)
+            path = pdir / rel
+            if not path.exists():
+                problems.append(f"protected copy {rel} is missing")
+            elif tree_digest(path) != ob["protected_digest"]:
+                problems.append(f"protected copy {rel} changed since contract acceptance")
+    return problems
+
+
 def check_store(cwd: Path) -> list[str]:
-    _, _, store = _open(cwd)
+    _, pdir, store = _open(cwd)
     try:
-        return store.check()
+        return _integrity_problems(pdir, store)
     finally:
         store.close()

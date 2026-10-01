@@ -188,7 +188,10 @@ class Store:
         return [self._record(r) for r in rows]
 
     def check(self) -> list[str]:
-        """Verify the hash chain and that every revision body matches its digest."""
+        """Verify the hash chain, every revision body and every blob it references.
+
+        A blob reference is any value under a key ending in `_blob` (STATE-15).
+        """
         problems: list[str] = []
         prev = GENESIS
         rows = self.db.execute(
@@ -211,7 +214,37 @@ class Store:
                 problems.append(f"event {seq}: hash chain broken")
             if body is None:
                 problems.append(f"event {seq}: revision missing")
-            elif digest(json.loads(body)) != cdig:
-                problems.append(f"event {seq}: content does not match its digest")
+            else:
+                parsed = json.loads(body)
+                if digest(parsed) != cdig:
+                    problems.append(f"event {seq}: content does not match its digest")
+                for ref in _blob_refs(parsed):
+                    problem = self._blob_problem(ref)
+                    if problem:
+                        problems.append(f"event {seq}: evidence {ref} {problem}")
             prev = h
         return problems
+
+    def _blob_problem(self, ref: str) -> str | None:
+        path = self.blob_path(ref)
+        try:
+            data = path.read_bytes()
+        except FileNotFoundError:
+            return "is missing"
+        except OSError as exc:
+            return f"cannot be read: {exc}"
+        return None if digest_bytes(data) == ref else "does not match its digest"
+
+
+def _blob_refs(value: Any) -> list[str]:
+    refs: list[str] = []
+    if isinstance(value, dict):
+        for k, v in value.items():
+            if k.endswith("_blob") and isinstance(v, str):
+                refs.append(v)
+            else:
+                refs += _blob_refs(v)
+    elif isinstance(value, list):
+        for v in value:
+            refs += _blob_refs(v)
+    return refs
