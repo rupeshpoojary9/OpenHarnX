@@ -1,0 +1,43 @@
+title = "Weakened checks are blocked"
+mode = "task"
+change_summary = "Check configuration and conftest files are locked at acceptance, and a mandatory built-in check blocks new suppressions, skip markers and removed tests or assertions; new test files need no approval."
+python = ".venv/bin/python"
+environment = "uv"
+
+[[obligations]]
+id = "acceptance-test_weakening"
+kind = "acceptance"
+mandatory = true
+protected = "../tests/test_weakening.py"
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "{protected}"]
+
+[[obligations]]
+id = "format"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "format", "--check", "--no-cache", "."]
+
+[[obligations]]
+id = "lint"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "check", "--no-cache", "."]
+
+[[obligations]]
+id = "types"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "mypy", "--cache-dir", "{tmp}/mypy"]
+
+[[obligations]]
+id = "layers"
+kind = "check"
+mandatory = true
+command = ["{bindir}/lint-imports", "--no-cache"]
+
+[[obligations]]
+id = "tests"
+kind = "regression"
+mandatory = true
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+timeout_s = 600

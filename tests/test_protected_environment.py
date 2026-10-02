@@ -151,8 +151,10 @@ def test_changed_lockfile_runs_nothing_and_is_not_ready(
     assert report["readiness"] == "unknown"
     observations = report["observations"]
     assert isinstance(observations, list)
-    assert all(o["outcome"] == "invalid" for o in observations)
-    assert all("uv.lock" in o["note"] for o in observations)
+    # Commands only: the built-in weakening check (T77 item 9) needs no environment.
+    commands = [o for o in observations if o["obligation_id"] != "weakening"]
+    assert commands and all(o["outcome"] == "invalid" for o in commands)
+    assert all("uv.lock" in o["note"] for o in commands)
 
 
 def test_tampered_lockfile_copy_in_the_store_is_an_integrity_problem(
@@ -178,7 +180,9 @@ def test_environment_that_cannot_be_built_is_unavailable(
     assert report["readiness"] == "unknown"
     observations = report["observations"]
     assert isinstance(observations, list)
-    assert all(o["outcome"] == "unavailable" for o in observations)
+    # Commands only: the built-in weakening check (T77 item 9) needs no environment.
+    commands = [o for o in observations if o["obligation_id"] != "weakening"]
+    assert commands and all(o["outcome"] == "unavailable" for o in commands)
 
 
 def test_accepting_without_a_lockfile_is_refused(

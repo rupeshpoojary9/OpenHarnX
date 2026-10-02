@@ -90,7 +90,9 @@ def test_sandbox_that_did_not_start_is_unknown_and_not_enforced(
     assert report["readiness"] == "unknown"
     observations = report["observations"]
     assert isinstance(observations, list)
-    assert {o["outcome"] for o in observations} == {"unavailable"}
+    # Commands only: the built-in weakening check (T77 item 9) runs outside the sandbox.
+    commands = [o for o in observations if o["obligation_id"] != "weakening"]
+    assert {o["outcome"] for o in commands} == {"unavailable"}
     protection = report["protection"]
     assert isinstance(protection, dict)
     assert not protection["verifier"].startswith("enforced")

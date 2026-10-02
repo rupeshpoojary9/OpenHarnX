@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import sys
+import time
 import tomllib
 import uuid
 from dataclasses import asdict
@@ -21,6 +22,8 @@ from openharnx.report import READINESS, render_markdown
 from openharnx.sandbox import find_srt
 from openharnx.store import Record, Store
 from openharnx.verify import run_obligation
+from openharnx.weakening import compare as compare_weakening
+from openharnx.weakening import snapshot as weakening_snapshot
 from openharnx.workspace import (
     NotARepository,
     build_manifest,
@@ -117,7 +120,11 @@ def accept_contract(cwd: Path, contract_file: Path) -> Record:
                 ob["protected_store_path"] = str(dest.relative_to(pdir))
                 del ob["protected"]
             obligations.append(ob)
-        environment = _lock_environment(raw, pdir, repo_root(cwd))
+        root = repo_root(cwd)
+        if any(ob.get("builtin") or ob["id"] == WEAKENING for ob in obligations):
+            raise UsageError(f"obligation id {WEAKENING!r} and `builtin` are reserved")
+        obligations.append(dict(WEAKENING_OBLIGATION))
+        environment = _lock_environment(raw, pdir, root)
         body = {
             "title": raw["title"],
             "python": raw.get("python", "unknown"),
@@ -128,6 +135,7 @@ def accept_contract(cwd: Path, contract_file: Path) -> Record:
             "documentation_obligations": ["assurance_report", "changelog_entry"],
             "obligations": obligations,
             **({"environment": environment} if environment else {}),
+            "weakening_baseline": weakening_snapshot(root, _files(build_manifest(root))),
             "status": "accepted",
         }
         previous = store.latest("contract")
@@ -242,6 +250,23 @@ def new_contract(
     return path
 
 
+WEAKENING = "weakening"
+# Added to every contract at acceptance (T77 item 9); run by OpenHarnX, not a command.
+WEAKENING_OBLIGATION: dict[str, Any] = {
+    "id": WEAKENING,
+    "kind": "check",
+    "mandatory": True,
+    "builtin": WEAKENING,
+    "command": ["ohx", "builtin", WEAKENING],
+    "timeout_s": 300,
+    "env": {},
+}
+
+
+def _files(manifest: dict[str, Any]) -> list[str]:
+    return [e["path"] for e in manifest["entries"] if e["type"] == "file"]
+
+
 class _EnvironmentChanged(Exception):
     """The candidate's lockfile, or its accepted copy, differs from what was accepted."""
 
@@ -347,7 +372,16 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                 protected = pdir / ob["protected_store_path"]
                 if tree_digest(protected) != ob["protected_digest"]:
                     note = "protected material changed since contract acceptance"
-            if env_note:
+            if ob.get("builtin") == WEAKENING:
+                start = time.monotonic()
+                current = weakening_snapshot(root, _files(before))
+                findings = compare_weakening(contract.body["weakening_baseline"], current)
+                outcome = "fail" if findings else "pass"
+                note = "; ".join(findings)
+                out = "\n".join(findings).encode()
+                ms = int((time.monotonic() - start) * 1000)
+                exit_code, argv = None, ob["command"]
+            elif env_note:
                 outcome, exit_code, out, ms, argv = env_outcome, None, b"", 0, ob["command"]
                 note = env_note
             elif note:
