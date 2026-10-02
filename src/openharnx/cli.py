@@ -151,8 +151,12 @@ def _cmd_trace_approve(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _say(line: str) -> None:
+    print(line, flush=True)
+
+
 def _cmd_bug_new(args: argparse.Namespace) -> int:
-    bug, proposal = bug_new(Path.cwd(), args.symptom, sandbox=args.sandbox)
+    bug, proposal = bug_new(Path.cwd(), args.symptom, sandbox=args.sandbox, progress=_say)
     body = bug.body
     print(f"{body['id']}: {body['symptom']}")
     if proposal:
@@ -174,13 +178,22 @@ def _cmd_bug_approve(args: argparse.Namespace) -> int:
 
 def _cmd_bug_fix(args: argparse.Namespace) -> int:
     report = bug_fix(
-        Path.cwd(), args.bug, sandbox=args.sandbox, attempts=args.attempts, budget_usd=args.budget
+        Path.cwd(),
+        args.bug,
+        sandbox=args.sandbox,
+        attempts=args.attempts,
+        budget_usd=args.budget,
+        progress=_say,
     )
     if not report:
         print(f"{args.bug}: budget of ${args.budget:.2f} already spent; no attempt made")
         return EXIT_BLOCKED
     print(render_markdown(report))
-    return EXIT_OK if report["readiness"] == "ready" else EXIT_BLOCKED
+    if report["readiness"] == "ready":
+        print("Next: review the change (git diff), then commit it.")
+        return EXIT_OK
+    print(f"Next: read the failures above; rerun `ohx bug fix {args.bug}` or revise the contract.")
+    return EXIT_BLOCKED
 
 
 def build_parser() -> argparse.ArgumentParser:

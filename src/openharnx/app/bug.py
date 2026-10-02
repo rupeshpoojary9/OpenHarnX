@@ -8,6 +8,7 @@ from __future__ import annotations
 import tempfile
 import tomllib
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -77,6 +78,34 @@ def _agent_command(root: Path, sandbox: str) -> list[str]:
     return [str(c) for c in command]
 
 
+Progress = Callable[[str], None]
+AGENT_TIMEOUT_S = 900
+
+
+def _quiet(_: str) -> None:
+    pass
+
+
+def _limits(command: list[str], srt: Path | None) -> str:
+    """The limits that apply to one agent run, as stated before it starts."""
+    parts = ["srt sandbox" if srt else "no sandbox", f"time limit {AGENT_TIMEOUT_S // 60} min"]
+    for flag, label in (
+        ("--max-turns", "up to {} agent turns"),
+        ("--max-budget-usd", "${} per run"),
+    ):
+        if flag in command and command.index(flag) + 1 < len(command):
+            parts.append(label.format(command[command.index(flag) + 1]))
+    return ", ".join(parts)
+
+
+def _finished(run: AgentRun) -> str:
+    cost = f"cost ${run.cost_usd:.2f}" if run.cost_usd is not None else "cost unknown"
+    end = "" if run.exit_code == 0 else f", exit {run.exit_code}"
+    if run.exit_code is None:
+        end = ", stopped (time limit or interrupted)"
+    return f"  done in {run.duration_ms / 1000:.0f}s, {cost}{end}"
+
+
 def _bugs(store: Store) -> dict[str, Record]:
     latest: dict[str, Record] = {}
     for rec in store.all("bug"):
@@ -112,7 +141,9 @@ def _record_run(store: Store, bug_id: str, phase: str, attempt: int, run: AgentR
     )
 
 
-def bug_new(cwd: Path, symptom: str, sandbox: str = "srt") -> tuple[Record, str]:
+def bug_new(
+    cwd: Path, symptom: str, sandbox: str = "srt", progress: Progress = _quiet
+) -> tuple[Record, str]:
     """Investigate read-only. Returns the bug record and the proposal text."""
     srt = _srt_for(sandbox)
     root, pdir, store = _open(cwd)
@@ -125,8 +156,10 @@ def bug_new(cwd: Path, symptom: str, sandbox: str = "srt") -> tuple[Record, str]
         # The agent may write only here, outside the repository and the store.
         out = Path(tempfile.mkdtemp(prefix="ohx-investigation-"))
         before = build_manifest(root)
+        command = _agent_command(root, sandbox)
+        progress(f"investigating {bug_id}: read-only, {_limits(command, srt)}")
         run = launch(
-            _agent_command(root, sandbox),
+            command,
             INVESTIGATE.format(symptom=symptom, out=out),
             cwd=root,
             run_dir=run_dir,
@@ -135,7 +168,10 @@ def bug_new(cwd: Path, symptom: str, sandbox: str = "srt") -> tuple[Record, str]
             srt=srt,
             ohx_home=ohx_home(),
             extra_env={"OHX_OUT": str(out)},
+            timeout_s=AGENT_TIMEOUT_S,
+            on_event=progress,
         )
+        progress(_finished(run))
         _record_run(store, bug_id, "investigate", 1, run)
 
         if build_manifest(root)["digest"] != before["digest"]:
@@ -155,6 +191,7 @@ def bug_new(cwd: Path, symptom: str, sandbox: str = "srt") -> tuple[Record, str]
             ), ""
         proposal = proposal_path.read_text()
 
+        progress("checking that the proposed tests fail on the current code")
         repro = run_obligation(
             {
                 "id": "reproduce",
@@ -257,7 +294,12 @@ def _feedback(report: dict[str, Any], store: Store) -> str:
 
 
 def bug_fix(
-    cwd: Path, bug_id: str, sandbox: str = "srt", attempts: int = 2, budget_usd: float = 2.0
+    cwd: Path,
+    bug_id: str,
+    sandbox: str = "srt",
+    attempts: int = 2,
+    budget_usd: float = 2.0,
+    progress: Progress = _quiet,
 ) -> dict[str, Any]:
     """Assign the approved contract to the agent; verify after each attempt."""
     srt = _srt_for(sandbox)
@@ -282,7 +324,12 @@ def bug_fix(
                 if r.body["bug"] == bug_id and isinstance(r.body["cost_usd"], (int, float))
             )
             if spent >= budget_usd:
+                progress(f"budget ${budget_usd:.2f} spent (${spent:.2f}); stopping")
                 break
+            progress(
+                f"attempt {attempt} of {attempts}: budget ${budget_usd:.2f},"
+                f" spent ${spent:.2f}, {_limits(command, srt)}"
+            )
             run_dir = pdir / "runs" / uuid.uuid4().hex[:12]
             run = launch(
                 command,
@@ -299,13 +346,18 @@ def bug_fix(
                 srt=srt,
                 ohx_home=ohx_home(),
                 extra_env={},
+                timeout_s=AGENT_TIMEOUT_S,
+                on_event=progress,
             )
+            progress(_finished(run))
             _record_run(store, bug_id, "fix", attempt, run)
         finally:
             store.close()
 
+        progress("verifying the change against the locked contract")
         record, _ = verify(cwd, sandbox="srt" if srt else "none")
         report = dict(record.body)
+        progress(f"attempt {attempt}: {report['readiness'].upper()}")
         if report["readiness"] == "ready":
             break
         _, _, store = _open(cwd)
