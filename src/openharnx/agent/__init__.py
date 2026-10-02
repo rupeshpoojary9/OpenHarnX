@@ -37,6 +37,7 @@ class AgentAdapter:
     protected_config: tuple[str, ...]  # under config_dir; never writable (they persist)
     describe: Callable[[dict[str, Any], Path], list[str]]  # one event as progress lines
     cost: Callable[[bytes], float | None]
+    temp_env: tuple[str, ...] = ()  # variables that move the agent's own temp directory
 
 
 def _short(text: str, limit: int = 100) -> str:
@@ -135,6 +136,8 @@ CLAUDE_CODE = AgentAdapter(
     ),
     describe=_claude_describe,
     cost=_claude_cost,
+    # Its shell state goes under /tmp/claude-<uid>, not TMPDIR; the sandbox denies that.
+    temp_env=("CLAUDE_CODE_TMPDIR",),
 )
 
 DEFAULT_COMMAND = list(CLAUDE_CODE.command)
@@ -169,6 +172,15 @@ def agent_profile(
     }
 
 
+def _agent_temp() -> Path:
+    """Outside the OpenHarnX home, which the agent may not write. Short where /tmp
+    is writable, because agents put socket paths under their temp directory."""
+    try:
+        return Path(tempfile.mkdtemp(prefix="ohx-", dir="/tmp")).resolve()
+    except OSError:
+        return Path(tempfile.mkdtemp(prefix="ohx-agent-")).resolve()
+
+
 def elapsed(seconds: float) -> str:
     whole = int(seconds)
     return f"{whole // 60}:{whole % 60:02d}"
@@ -191,8 +203,7 @@ def launch(
 ) -> AgentRun:
     """Run the agent; each event it emits is shown through `on_event` as it happens."""
     run_dir.mkdir(parents=True, exist_ok=True)
-    # Outside the OpenHarnX home, which the agent may not write.
-    tmp = Path(tempfile.mkdtemp(prefix="ohx-agent-"))
+    tmp = _agent_temp()
     argv = [a.replace("{prompt}", prompt) for a in command]
     env_vars = {"OHX_PHASE": phase, **extra_env}
     if srt is not None:
@@ -203,6 +214,7 @@ def launch(
             "LANG": os.environ.get("LANG", "C.UTF-8"),
             "TMPDIR": str(tmp),
             **{k: os.environ[k] for k in allowed if k in os.environ},
+            **dict.fromkeys(adapter.temp_env, str(tmp)),
             **env_vars,
         }
         profile = write_profile(
