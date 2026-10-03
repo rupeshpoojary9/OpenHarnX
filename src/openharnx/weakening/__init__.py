@@ -158,6 +158,8 @@ def _config_digest(path: str, data: bytes) -> str | None:
             part["scripts"] = checks
         return _digest(json.dumps(part, sort_keys=True).encode()) if part else None
     name = PurePosixPath(path).name
+    if PurePosixPath(path).parts[-2:] == (".claude", "settings.json"):
+        return _digest(data)  # shared agent settings: where a verifying hook lives (T80)
     if name in CONFIG_NAMES or _JS_CONFIG.match(name) or GO_CONFIG.match(name):
         return _digest(data)
     return None

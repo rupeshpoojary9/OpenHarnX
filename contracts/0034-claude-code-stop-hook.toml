@@ -1,0 +1,43 @@
+title = "Claude Code Stop hook"
+mode = "task"
+change_summary = "ohx hook install adds a Stop hook to the owner's Claude Code settings with its own time limit; ohx hook claude-stop verifies when the agent says it is done, lets it stop on READY and otherwise blocks with what failed and why editing locked tests does not help; after three blocked attempts in a row it lets the agent stop and tells the owner."
+python = ".venv/bin/python"
+environment = "uv"
+
+[[obligations]]
+id = "acceptance-test_claude_hook"
+kind = "acceptance"
+mandatory = true
+protected = "../tests/test_claude_hook.py"
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "{protected}"]
+
+[[obligations]]
+id = "format"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "format", "--check", "--no-cache", "."]
+
+[[obligations]]
+id = "lint"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "check", "--no-cache", "."]
+
+[[obligations]]
+id = "types"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "mypy", "--cache-dir", "{tmp}/mypy"]
+
+[[obligations]]
+id = "layers"
+kind = "check"
+mandatory = true
+command = ["{bindir}/lint-imports", "--no-cache"]
+
+[[obligations]]
+id = "tests"
+kind = "regression"
+mandatory = true
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+timeout_s = 600

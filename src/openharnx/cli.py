@@ -29,6 +29,8 @@ from openharnx.app import (
 from openharnx.app.audit import audit_trail
 from openharnx.app.bug import bug_approve, bug_fix, bug_new, bug_show, describe_proposed
 from openharnx.app.gate import gate, lock_tests
+from openharnx.app.hook import install as hook_install
+from openharnx.app.hook import main_stop as hook_main_stop
 from openharnx.app.trace import trace_approve, trace_check, trace_init
 from openharnx.doctor import run_checks
 from openharnx.report import render_markdown
@@ -111,6 +113,25 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         print(render_markdown(report))
         print(f"Saved to {run_dir}")
     return EXIT_OK if report["readiness"] == "ready" else EXIT_BLOCKED
+
+
+def _cmd_hook_install(_: argparse.Namespace) -> int:
+    path = hook_install(Path.cwd())
+    print(f"installed the Claude Code Stop hook in {path}")
+    print("when the agent says it is done, OpenHarnX verifies; BLOCKED goes back to the agent")
+    return EXIT_OK
+
+
+def _cmd_hook_claude_stop(args: argparse.Namespace) -> int:
+    # Exit code 2 would tell Claude Code to block with stderr as the reason, so this hook
+    # always exits 0 and answers in JSON, problems included.
+    try:
+        answer = hook_main_stop(args.sandbox)
+    except Exception as exc:  # any failure must reach the owner, not block the agent
+        answer = {"systemMessage": f"OpenHarnX could not verify: {exc}"}
+    if answer:
+        print(json.dumps(answer))
+    return EXIT_OK
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
@@ -280,6 +301,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     init.set_defaults(func=_cmd_init)
 
+    hook = sub.add_parser("hook", help="agent hooks (Claude Code)")
+    hsub = hook.add_subparsers(dest="hook_command", metavar="<action>")
+    hinstall = hsub.add_parser("install", help="add the Stop hook to .claude/settings.local.json")
+    hinstall.set_defaults(func=_cmd_hook_install)
+    hstop = hsub.add_parser("claude-stop", help="run by Claude Code when the agent stops")
+    hstop.add_argument("--sandbox", choices=["auto", "srt", "none"], default="auto")
+    hstop.set_defaults(func=_cmd_hook_claude_stop)
+
     contract = sub.add_parser("contract", help="work contracts")
     csub = contract.add_subparsers(dest="contract_command", metavar="<action>")
     accept = csub.add_parser("accept", help="validate and accept a contract TOML file")
@@ -378,7 +407,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 # Commands that write evidence; each ends by signing the chain head (T87 item 4).
-WRITERS = {"init", "contract", "verify", "bug", "trace"}
+WRITERS = {"init", "contract", "verify", "bug", "trace", "hook"}
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -13,7 +13,7 @@ OpenHarnX is a local-first delivery system that plans, staffs, controls and veri
 
 **Early, private, not yet released.** What works today, on macOS with Python projects tested with pytest and TypeScript or JavaScript projects tested with Vitest, Jest or `node --test` (in CI too, with `environment = "npm"` protecting `node_modules`), and Go projects tested with `go test` (validated on Linux):
 
-- **Zero setup.** `ohx init --lock-tests` makes the existing test suite the contract; `ohx verify` then blocks a change that breaks, skips or edits its way past it.
+- **Zero setup.** `ohx init --lock-tests` makes the existing test suite the contract; `ohx verify` then blocks a change that breaks, skips or edits its way past it. `ohx hook install` makes Claude Code verify when the agent says it is done and sends BLOCKED back to the agent.
 - **The gate.** `ohx contract new --accept` locks a contract and protected copies of its acceptance tests; `ohx verify --sandbox srt` runs every check in the `srt` sandbox and gives READY, BLOCKED, UNKNOWN or INVALID. It blocks weakened checks, broken tests that passed before, and checkers supplied by the candidate. No model calls.
 - **Evidence.** A hash-chained local store, signed with the owner's SSH key; `ohx report`, `ohx audit` (who did what and touched what) and `ohx store check`.
 - **`ohx bug`.** An agent (Claude Code) investigates read-only, the owner approves the rule and the tests, the agent fixes, the gate verifies.
