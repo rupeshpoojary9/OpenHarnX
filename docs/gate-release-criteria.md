@@ -7,7 +7,7 @@ Out of scope for this release: `ohx bug` (agent-driven fixes), `ohx trace` (requ
 ## Release decision
 
 **Releasable now: no**
-Blocking: RC-02, RC-16, RC-17, RC-18, RC-19, RC-24, RC-25.
+Blocking: RC-16, RC-17, RC-18, RC-19, RC-24, RC-25, RC-31.
 
 ## Supported environment
 
@@ -16,7 +16,7 @@ The first release supports Python projects tested with pytest, on macOS (arm64) 
 | ID | Criterion | Release | Status | Evidence | Owner |
 |---|---|---|---|---|---|
 | RC-01 | Sandboxed verification works on macOS arm64 with srt; the checker cannot be replaced from the candidate under the real sandbox | required | met | `tests/test_checker_shadowing.py::test_candidate_file_cannot_replace_the_checker_under_srt`, `tests/test_skeleton_e2e.py::test_sandboxed_verification` (both run with OHX_SRT set; every OpenHarnX commit since T77 was verified READY under srt) | |
-| RC-02 | Sandboxed verification works on a Linux CI runner, validated in CI, not at packaging | required | not met | | T79 |
+| RC-02 | Sandboxed verification works on a Linux CI runner, validated in CI, not at packaging | required | met | `tests/test_gate_ci.py::test_genuine_change_with_a_new_test_is_ready`, `tests/test_gate_ci.py::test_editing_a_test_to_match_broken_code_is_blocked` (the same cases on GitHub Actions ubuntu-24.04, 2026-10-03: run 37116149741 READY and run 37116150695 BLOCKED, both with the srt sandbox enforced) | |
 | RC-03 | A Python project with a uv lockfile is checked from a protected environment built outside the candidate | required | met | `tests/test_protected_environment.py::test_tampered_candidate_interpreter_cannot_pass_buggy_code`, `tests/test_protected_environment.py::test_changed_lockfile_runs_nothing_and_is_not_ready` | |
 | RC-04 | Without a protected environment, the report names that blind spot instead of claiming protection | required | met | `tests/test_protected_environment.py::test_without_a_protected_environment_the_report_names_the_blind_spot` | |
 
@@ -58,6 +58,7 @@ Every negative control is paired with a positive one, so a gate that blocks ever
 
 | ID | Criterion | Release | Status | Evidence | Owner |
 |---|---|---|---|---|---|
+| RC-31 | In CI, every locked base test runs as it would in the repository, including tests that find files relative to their own location | required | not met | | T79 |
 | RC-20 | A report for an earlier candidate or contract revision is shown as stale, never as ready | required | met | `tests/test_skeleton_e2e.py::test_report_is_stale_after_source_edit`, `tests/test_skeleton_e2e.py::test_report_is_stale_after_new_contract` | |
 | RC-21 | An edited verdict, a missing or changed evidence file, or a changed protected copy makes the report invalid | required | met | `tests/test_report_integrity.py::test_edited_saved_verdict_is_not_ready`, `tests/test_report_integrity.py::test_deleted_evidence_file_is_not_ready`, `tests/test_report_integrity.py::test_changed_protected_copy_is_not_ready` | |
 | RC-22 | Concurrent writers keep one unbroken evidence chain | required | met | `tests/test_store_concurrency.py::test_concurrent_appends_keep_one_unbroken_chain` | |
