@@ -130,4 +130,4 @@ def run_obligation(
         output += b"\nohx: the sandbox did not start the checker\n"
         return CheckerRun("unavailable", proc.returncode, output, elapsed, argv, False)
     outcome = "crash" if proc.returncode < 0 else classify(proc.returncode)
-    return CheckerRun(outcome, proc.returncode, output, elapsed, argv, started is not None)
+    return CheckerRun(outcome, proc.returncode, output, elapsed, argv, True if started else None)
