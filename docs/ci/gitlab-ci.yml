@@ -1,0 +1,30 @@
+# OpenHarnX gate for GitLab merge requests (example, T79).
+#
+# Copy this job into your .gitlab-ci.yml. The job image is built from OpenHarnX's
+# ci/linux/Dockerfile (Python 3.12, Node 22, srt, bubblewrap); push it to your
+# registry and set OHX_IMAGE. The runner must allow user namespaces for the
+# sandbox: see docs/ci/README.md. Exit code 0 is READY; anything else fails the job.
+ohx-gate:
+  image: $OHX_IMAGE
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    GIT_DEPTH: "0"
+    OHX_SOURCE: "git+https://github.com/rupeshpoojary9/OpenHarnX"
+    OHX_VERSION: "<commit SHA of the OpenHarnX version you trust>"
+    OHX_BASE: $CI_MERGE_REQUEST_DIFF_BASE_SHA
+  timeout: 30m
+  script:
+    - |
+      # ohx-gate commands: start
+      base="$OHX_BASE"
+      git rev-parse --verify -q "$base^{commit}" >/dev/null || { git fetch --no-tags origin "$base"; base=FETCH_HEAD; }
+      python3 -m venv "$HOME/ohx"
+      "$HOME/ohx/bin/pip" install -q uv "openharnx @ $OHX_SOURCE@$OHX_VERSION"
+      OHX_SIGNING_KEY=none "$HOME/ohx/bin/ohx" gate --base "$base" --sandbox srt --out ohx-gate
+      # ohx-gate commands: end
+  artifacts:
+    when: always
+    paths:
+      - ohx-gate/
+    expire_in: 30 days

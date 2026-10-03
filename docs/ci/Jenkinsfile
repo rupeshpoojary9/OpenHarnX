@@ -1,0 +1,43 @@
+// OpenHarnX gate for Jenkins multibranch pull requests (example, T79).
+//
+// The agent image is built from OpenHarnX's ci/linux/Dockerfile (Python 3.12,
+// Node 22, srt, bubblewrap). The Docker options let bubblewrap create its
+// namespaces and mount /proc: see docs/ci/README.md. Exit code 0 is READY;
+// anything else fails the build.
+pipeline {
+  agent {
+    docker {
+      image 'ohx-linux'
+      args '--security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined'
+    }
+  }
+  environment {
+    OHX_SOURCE = 'git+https://github.com/rupeshpoojary9/OpenHarnX'
+    OHX_VERSION = '<commit SHA of the OpenHarnX version you trust>'
+    OHX_BASE = "${env.CHANGE_TARGET}"
+  }
+  options {
+    timeout(time: 30, unit: 'MINUTES')
+  }
+  stages {
+    stage('OpenHarnX gate') {
+      when { changeRequest() }
+      steps {
+        sh '''
+          # ohx-gate commands: start
+          base="$OHX_BASE"
+          git rev-parse --verify -q "$base^{commit}" >/dev/null || { git fetch --no-tags origin "$base"; base=FETCH_HEAD; }
+          python3 -m venv "$HOME/ohx"
+          "$HOME/ohx/bin/pip" install -q uv "openharnx @ $OHX_SOURCE@$OHX_VERSION"
+          OHX_SIGNING_KEY=none "$HOME/ohx/bin/ohx" gate --base "$base" --sandbox srt --out ohx-gate
+          # ohx-gate commands: end
+        '''
+      }
+    }
+  }
+  post {
+    always {
+      archiveArtifacts artifacts: 'ohx-gate/**', allowEmptyArchive: true
+    }
+  }
+}
