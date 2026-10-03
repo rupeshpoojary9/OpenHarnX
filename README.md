@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/openharnx-logo-transparent.png">
-    <img src="docs/assets/openharnx-logo.png" alt="OpenHarnX" width="600">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/openharnx-logo-dark.png">
+    <img src="docs/assets/openharnx-logo-light.png" alt="OpenHarnX" width="600">
   </picture>
 </p>
 
