@@ -62,6 +62,8 @@ runs:
         OHX_OUT: ${{ inputs.out || format('{0}/ohx-gate', runner.temp) }}
         OHX_SIGNING_KEY: none
       run: |
+        # The gate builds the protected checker environment with uv from this environment.
+        export PATH="$RUNNER_TEMP/ohx/bin:$PATH"
         base="$OHX_BASE"
         git rev-parse --verify -q "$base^{commit}" >/dev/null || { git fetch --no-tags origin "$base"; base=FETCH_HEAD; }
         set +e
