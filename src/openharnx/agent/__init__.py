@@ -213,6 +213,7 @@ def launch(
             "HOME": str(Path.home()),
             "LANG": os.environ.get("LANG", "C.UTF-8"),
             "TMPDIR": str(tmp),
+            "TMPPREFIX": str(tmp / "zsh"),  # zsh heredoc files; zsh ignores TMPDIR
             **{k: os.environ[k] for k in allowed if k in os.environ},
             **dict.fromkeys(adapter.temp_env, str(tmp)),
             **env_vars,
