@@ -117,8 +117,23 @@ def _names(tests: list[str]) -> str:
 
 
 def compare(base: dict[str, Any], outcome: str, tests: dict[str, str] | None) -> tuple[str, str]:
-    """Outcome (pass, fail or unavailable) and note for the no-new-failures check."""
+    """Outcome (pass, fail or unavailable) and note for the no-new-failures check.
+
+    Per-test results count only when the suite ran properly (it passed or had failing
+    tests) and ran at least one test: a suite that collected nothing, crashed or timed
+    out is never evidence of a pass (review 2026-10-03)."""
     before: dict[str, str] | None = base.get("tests")
+    if base.get("outcome") not in ("pass", "fail"):
+        return "unavailable", (
+            f"no baseline: the suite could not run at acceptance ({base.get('outcome')});"
+            " fix that and accept a contract revision"
+        )
+    if outcome not in ("pass", "fail"):
+        if base.get("outcome") == "pass":
+            return "fail", f"the suite passed at acceptance and now ends with {outcome}"
+        return "unavailable", f"the suite now ends with {outcome}, so nothing can be compared"
+    if before is not None and not before:
+        return "unavailable", "no test ran at acceptance, so there is nothing to compare"
     if before is not None and tests is not None:
         problems = []
         for test_id, was in sorted(before.items()):
@@ -140,11 +155,6 @@ def compare(base: dict[str, Any], outcome: str, tests: dict[str, str] | None) ->
         if outcome == "pass":
             return "pass", ""
         return "fail", f"the suite passed at acceptance and now ends with {outcome}"
-    if base.get("outcome") not in ("pass", "fail"):
-        return "unavailable", (
-            f"no baseline: the suite could not run at acceptance ({base.get('outcome')});"
-            " fix that and accept a contract revision"
-        )
     return "unavailable", (
         "cannot compare: the suite was already failing at acceptance"
         " and per-test results are not available"

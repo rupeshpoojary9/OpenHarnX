@@ -12,8 +12,11 @@ read as progress and how it reports cost. Claude Code is the first adapter.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import queue
+import signal
 import subprocess
 import tempfile
 import threading
@@ -247,29 +250,54 @@ def launch(
 
     start = time.monotonic()
     try:
+        # Its own process group, so a timeout stops everything the agent started.
         proc = subprocess.Popen(
-            cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            cmd,
+            cwd=cwd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
         )
     except OSError as exc:
         return AgentRun(None, str(exc).encode(), None, 0, protection, _identity(adapter, argv, b""))
 
+    # Both pipes are read on threads, so the launcher keeps its own clock: a process that
+    # left the agent's group and holds a pipe open cannot keep it waiting (review 2026-10-03).
+    lines: queue.Queue[bytes | None] = queue.Queue()
     stderr: list[bytes] = []
-    reader = threading.Thread(
-        target=lambda: stderr.append(proc.stderr.read() if proc.stderr else b"")
-    )
-    reader.start()
-    timed_out = threading.Event()
 
-    def _expire() -> None:
-        timed_out.set()
-        proc.kill()
+    def _read_stdout() -> None:
+        with contextlib.suppress(OSError, ValueError):
+            for raw in proc.stdout or []:
+                lines.put(raw)
+        lines.put(None)
 
-    timer = threading.Timer(timeout_s, _expire)
-    timer.start()
+    def _read_stderr() -> None:
+        with contextlib.suppress(OSError, ValueError):
+            stderr.append(proc.stderr.read() if proc.stderr else b"")
+
+    readers = [threading.Thread(target=f, daemon=True) for f in (_read_stdout, _read_stderr)]
+    for reader in readers:
+        reader.start()
+    deadline = start + timeout_s
+    timed_out, drain_until = False, None
     stdout: list[bytes] = []
     try:
-        assert proc.stdout is not None
-        for raw in proc.stdout:
+        while True:
+            try:
+                raw = lines.get(timeout=0.1)
+            except queue.Empty:
+                now = time.monotonic()
+                if drain_until is None and (now >= deadline or proc.poll() is not None):
+                    timed_out = now >= deadline and proc.poll() is None
+                    _stop(proc)  # the agent ended or ran out of time: so does all it started
+                    drain_until = now + DRAIN_S
+                if drain_until is not None and now >= drain_until:
+                    break
+                continue
+            if raw is None:
+                break
             stdout.append(raw)
             if on_event is None:
                 continue
@@ -280,18 +308,28 @@ def launch(
             if isinstance(event, dict):
                 for line in adapter.describe(event, cwd):
                     on_event(f"  [{elapsed(time.monotonic() - start)}] {line}")
-        proc.wait()
     finally:
-        timer.cancel()
-        if proc.poll() is None:  # interrupted: never leave the agent running
-            proc.kill()
-            proc.wait()
-        reader.join()
+        _stop(proc)  # never leave the agent, or anything it started, running
+        proc.wait()
+        end = drain_until if drain_until is not None else time.monotonic() + DRAIN_S
+        readers[1].join(max(0.0, end - time.monotonic()))  # one drain time for both pipes
     out = b"".join(stdout)
     ms = int((time.monotonic() - start) * 1000)
-    code = None if timed_out.is_set() else proc.returncode
+    code = None if timed_out else proc.returncode
     identity = _identity(adapter, argv, out)
     return AgentRun(code, out + b"".join(stderr), adapter.cost(out), ms, protection, identity)
+
+
+DRAIN_S = 2.0  # how long output is read after the agent is stopped
+
+
+def _stop(proc: subprocess.Popen[bytes]) -> None:
+    """Kill the agent's whole process group."""
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        if proc.poll() is None:
+            proc.kill()
 
 
 def _identity(adapter: AgentAdapter, argv: list[str], output: bytes) -> dict[str, str]:

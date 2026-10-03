@@ -1067,6 +1067,16 @@ def _signature_problems(store: Store, pins: list[str]) -> tuple[list[str], list[
                     f"signature over record {rec.body['seq']}: signed by an unexpected key"
                     f" {rec.body['fingerprint']}, not by {', '.join(pins)}"
                 )
+        # A pinned key must cover the whole store: removing signatures and rebuilding the
+        # chain leaves nothing to check, which is not the same as nothing wrong.
+        pinned = [r.body["seq"] for r in valid if r.body["fingerprint"] in pins]
+        expected = ", ".join(pins)
+        if not pinned:
+            problems.append(f"not signed by {expected}: no valid signature from that key")
+        elif unsigned := store.count_after(max(pinned), SIGNATURE):
+            problems.append(
+                f"{unsigned} record(s) after record {max(pinned)} are not signed by {expected}"
+            )
     return problems, valid
 
 

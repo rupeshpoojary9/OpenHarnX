@@ -70,7 +70,8 @@ runs:
         "$RUNNER_TEMP/ohx/bin/ohx" gate --base "$base" --sandbox "$OHX_SANDBOX" --out "$OHX_OUT"
         code=$?
         set -e
-        readiness=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["readiness"])' "$OHX_OUT/report.json" 2>/dev/null || echo unknown)
+        # -I: isolated, so nothing in the pull request's folder can be imported here.
+        readiness=$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["readiness"])' "$OHX_OUT/report.json" 2>/dev/null || echo unknown)
         echo "report=$OHX_OUT" >> "$GITHUB_OUTPUT"
         echo "readiness=$readiness" >> "$GITHUB_OUTPUT"
         exit "$code"

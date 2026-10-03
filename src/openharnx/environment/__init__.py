@@ -80,8 +80,11 @@ def ensure(envs: Path, lockfile: Path, candidate: Path) -> CheckerEnvironment:
     if proc.returncode != 0 or not python.exists():
         out = (proc.stdout + proc.stderr).decode(errors="replace").strip()[-2000:]
         raise EnvironmentUnavailable(f"uv sync failed ({proc.returncode}): {out}")
+    # Isolated (-I) and run from the store: OpenHarnX runs inside the candidate, whose
+    # files must never be importable by its own orchestration (review 2026-10-03).
     site = subprocess.run(
-        [str(python), "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
+        [str(python), "-I", "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
+        cwd=root,
         capture_output=True,
         text=True,
     ).stdout.strip()
