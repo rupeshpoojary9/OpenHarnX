@@ -80,7 +80,7 @@ The gate in CI runs code from pull requests by strangers. No model calls and no 
 | RC-17 | The contract, protected tests and verifier come from the protected base branch, never from the pull request | required | not met | | T79 |
 | RC-18 | Untrusted runs use ephemeral, unprivileged runners: no privileged checkout of pull request code, no persistent self-hosted runner for forks, controlled caches, network and resource limits | required | not met | | T79 |
 | RC-19 | The verdict is published without exposing write permissions to the candidate process: job outputs or artifacts first; any privileged publisher treats result data as untrusted and never executes it | required | not met | | T79 |
-| RC-24 | Evidence produced in CI is signed as the pipeline (Sigstore keyless), and reports say which kind of signature they carry | required | not met | | T79 |
+| RC-24 | Evidence produced in CI is signed as the pipeline (Sigstore keyless), and reports say which kind of signature they carry (built 2026-10-03 as a GitHub artifact attestation in a separate job, guarded by `tests/test_workflow_guard.py`; GitHub signs only in public repositories below Enterprise Cloud, so the first real signature comes when the repository is public) | required | not met | | T81 |
 
 ## Not supported
 

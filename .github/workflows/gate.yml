@@ -6,6 +6,12 @@
 # Limit (GitHub): on pull_request the workflow file itself comes from the pull
 # request. Protect it with branch protection and approval for outside
 # contributors' workflows.
+#
+# Signing (RC-24): a separate job signs the report as a GitHub artifact
+# attestation (Sigstore). It never checks out or runs pull request code, and it
+# alone holds the signing permissions. GitHub signs only in public repositories
+# on plans below Enterprise Cloud, and gives pull requests from forks no signing
+# identity; the job summary says why a run is unsigned.
 name: OpenHarnX gate
 
 on:
@@ -62,3 +68,50 @@ jobs:
           name: ohx-gate-report
           path: ${{ runner.temp }}/ohx-gate
           if-no-files-found: warn
+
+      - name: Say how the report is signed
+        if: always()
+        env:
+          PRIVATE: ${{ github.event.repository.private }}
+          FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+          REPO: ${{ github.repository }}
+        run: |
+          {
+            echo "## Signature"
+            echo
+            if [ "$PRIVATE" = "true" ]; then
+              echo "Not signed: GitHub signs CI evidence only in public repositories on this plan."
+            elif [ "$FORK" = "true" ]; then
+              echo "Not signed: pull requests from forks get no signing identity."
+            else
+              echo "Signed by the sign job as a GitHub artifact attestation (Sigstore)."
+              echo "Check it: \`gh attestation verify report.json -R $REPO\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  sign:
+    needs: gate
+    if: >-
+      ${{ always() && needs.gate.result != 'skipped'
+      && !github.event.repository.private
+      && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Fetch the report (no pull request code is checked out here)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ohx-gate-report
+          path: report
+
+      - name: Sign the report (SLSA provenance, Sigstore)
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            report/report.json
+            report/report.md
