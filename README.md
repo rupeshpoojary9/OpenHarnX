@@ -11,7 +11,7 @@ OpenHarnX is a local-first delivery system that plans, staffs, controls and veri
 
 ## Status
 
-**Early, private, not yet released.** What works today, on macOS with Python projects tested with pytest and TypeScript or JavaScript projects tested with Vitest, Jest or `node --test` (the gate in CI too, with `environment = "npm"` protecting `node_modules`):
+**Early, private, not yet released.** What works today, on macOS with Python projects tested with pytest and TypeScript or JavaScript projects tested with Vitest, Jest or `node --test` (in CI too, with `environment = "npm"` protecting `node_modules`), and Go projects tested with `go test` (validated on Linux):
 
 - **The gate.** `ohx contract new --accept` locks a contract and protected copies of its acceptance tests; `ohx verify --sandbox srt` runs every check in the `srt` sandbox and gives READY, BLOCKED, UNKNOWN or INVALID. It blocks weakened checks, broken tests that passed before, and checkers supplied by the candidate. No model calls.
 - **Evidence.** A hash-chained local store, signed with the owner's SSH key; `ohx report`, `ohx audit` (who did what and touched what) and `ohx store check`.
@@ -19,7 +19,7 @@ OpenHarnX is a local-first delivery system that plans, staffs, controls and veri
 
 The public gate has its own release boundary: [docs/gate-release-criteria.md](docs/gate-release-criteria.md). It is not yet met (the cheat demo, branch protection for the workflow, CI signing, a public install).
 
-**Not supported yet:** Linux outside CI, Windows, Go and other languages, TypeScript and JavaScript in `ohx bug`, pnpm and Yarn lockfiles, Playwright, more than one agent at a time. On anything outside the supported list OpenHarnX makes no claim of protection.
+**Not supported yet:** Linux outside CI, Windows, other languages, TypeScript, JavaScript and Go in `ohx bug`, pnpm and Yarn lockfiles, Playwright, more than one agent at a time. On anything outside the supported list OpenHarnX makes no claim of protection.
 
 ## Specifications
 

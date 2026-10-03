@@ -24,6 +24,10 @@ Both examples run the same block of commands, between `# ohx-gate commands` mark
 - **The runner** is `js_runner` in the base's `ohx.toml` (`vitest`, `jest` or `node`), else Vitest or Jest when the base's `package.json` lists it, else Node's own test runner. Node's runner reads TypeScript from Node 22.18; GitHub's Ubuntu runners ship an older Node, so add `actions/setup-node` (pinned to a commit) with `node-version: 22` or later before the gate.
 - **Test files are locked wherever they are**: every `*.test.*`, `*.spec.*` and `__tests__/` file of the base runs against the change in place of the change's own copies.
 
+## Go projects
+
+- The gate runs `go test -json -count=1 ./...` when the base has `go.mod`, and locks every `_test.go` file of the base at its path. The runner needs Go (`actions/setup-go`, pinned to a commit). Fill the module cache before the gate (`go mod download` runs no module code); the checks then run in the sandbox without network.
+
 ## GitHub Actions in your own project
 
 Use the action pinned to a commit. Pinning the action pins the gate: it installs itself from its own source, never from your code. Give the job a read-only token.

@@ -8,10 +8,10 @@ is compared with it. Any finding blocks until a contract revision is accepted.
 
 Adding tests needs no approval: a new test file is checked only for
 suppressions, and more tests or assertions in an existing file are fine.
-Python, TypeScript and JavaScript (T82); counts are per file, so moving a
+Python, TypeScript, JavaScript and Go (T82); counts are per file, so moving a
 suppression within one file is not seen. Baselines made before TypeScript
-support (version 1) are compared on Python only, so their contracts judge as
-they did.
+support (version 1) are compared on Python only, and before Go support
+(version 2) without Go, so their contracts judge as they did.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ import tomllib
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-BASELINE_VERSION = 2
+BASELINE_VERSION = 3
 
 # Files that configure checkers, wherever they are (ruff and pytest read nested ones).
 CONFIG_NAMES = frozenset(
@@ -60,6 +60,21 @@ _JS_CONFIG = re.compile(
 # package.json keys that configure checkers; scripts only when they run checks.
 _PACKAGE_KEYS = ("jest", "eslintConfig", "mocha", "c8", "nyc", "ava", "vitest")
 _CHECK_SCRIPT = re.compile(r"^(?:test|lint|type|check|format|ci|verify)", re.IGNORECASE)
+
+# Go (T82). A build constraint is counted in test files only: there it can switch a test
+# file off, while in other files it is the ordinary way to write platform code.
+GO_CONFIG = re.compile(r"^(?:\.golangci\.(?:ya?ml|toml|json)|staticcheck\.conf)$")
+GO_SUPPRESSIONS = {
+    "nolint": re.compile(r"//\s*nolint\b"),
+    "lint:ignore": re.compile(r"//\s*lint:(?:file-)?ignore\b"),
+    "#nosec": re.compile(r"#nosec\b"),
+    "skipped test": re.compile(r"\b\w+\.(?:Skip|SkipNow|Skipf)\s*\("),
+}
+GO_TEST_ONLY = {"build constraint": re.compile(r"^//\s*(?:go:build|\+build)\b", re.MULTILINE)}
+_GO_TESTS = re.compile(r"^func\s+(?:Test|Fuzz|Example)\w*\s*\(", re.MULTILINE)
+_GO_CHECKS = re.compile(
+    r"\b[tbf]\.(?:Error|Errorf|Fatal|Fatalf|Fail|FailNow)\s*\(|\b(?:assert|require)\.\w+\s*\("
+)
 
 JS_SUPPRESSIONS = {
     "@ts-ignore": re.compile(r"@ts-ignore\b"),
@@ -104,6 +119,8 @@ def is_test_file(path: str) -> bool:
     name = p.name
     if name.endswith(".py"):
         return name.startswith("test_") or name.endswith("_test.py")
+    if name.endswith(".go"):
+        return name.endswith("_test.go")
     if name.endswith(JS_SOURCE):
         return bool(_JS_TEST_FILE.search(name)) or "__tests__" in p.parts[:-1]
     return False
@@ -141,7 +158,7 @@ def _config_digest(path: str, data: bytes) -> str | None:
             part["scripts"] = checks
         return _digest(json.dumps(part, sort_keys=True).encode()) if part else None
     name = PurePosixPath(path).name
-    if name in CONFIG_NAMES or _JS_CONFIG.match(name):
+    if name in CONFIG_NAMES or _JS_CONFIG.match(name) or GO_CONFIG.match(name):
         return _digest(data)
     return None
 
@@ -163,6 +180,10 @@ def snapshot(root: Path, paths: list[str]) -> dict[str, Any]:
             patterns, test_re, check_re = SUPPRESSIONS, _TESTS, _CHECKS
         elif rel.endswith(JS_SOURCE):
             patterns, test_re, check_re = JS_SUPPRESSIONS, _JS_TESTS, _JS_CHECKS
+        elif rel.endswith(".go"):
+            patterns, test_re, check_re = GO_SUPPRESSIONS, _GO_TESTS, _GO_CHECKS
+            if is_test_file(rel):
+                patterns = {**GO_SUPPRESSIONS, **GO_TEST_ONLY}
         else:
             continue
         text = data.decode("utf-8", errors="replace")
@@ -183,25 +204,32 @@ def snapshot(root: Path, paths: list[str]) -> dict[str, Any]:
     }
 
 
-def _python_only(snap: dict[str, Any]) -> dict[str, Any]:
-    """What a version 1 baseline would have recorded: Python files and their configuration."""
+def _as_version(snap: dict[str, Any], version: int) -> dict[str, Any]:
+    """What a baseline of an earlier version would have recorded: version 1 Python only,
+    version 2 without Go."""
 
-    def v1_config(path: str) -> bool:
+    def known(path: str, config: bool = False) -> bool:
         name = PurePosixPath(path).name
-        return name == "pyproject.toml" or name in CONFIG_NAMES
+        if version < 2:
+            return (
+                (name == "pyproject.toml" or name in CONFIG_NAMES)
+                if config
+                else (path.endswith(".py"))
+            )
+        return not (path.endswith(".go") or (config and GO_CONFIG.match(name)))
 
     return {
         **snap,
-        "config": {k: v for k, v in snap["config"].items() if v1_config(k)},
-        "suppressions": {k: v for k, v in snap["suppressions"].items() if k.endswith(".py")},
-        "tests": {k: v for k, v in snap["tests"].items() if k.endswith(".py")},
+        "config": {k: v for k, v in snap["config"].items() if known(k, config=True)},
+        "suppressions": {k: v for k, v in snap["suppressions"].items() if known(k)},
+        "tests": {k: v for k, v in snap["tests"].items() if known(k)},
     }
 
 
 def compare(baseline: dict[str, Any], current: dict[str, Any]) -> list[str]:
     """Findings that lower the bar since the baseline; empty means none found."""
-    if baseline.get("version", 1) < 2:
-        current = _python_only(current)
+    if baseline.get("version", 1) < BASELINE_VERSION:
+        current = _as_version(current, baseline.get("version", 1))
     findings: list[str] = []
     before_cfg, now_cfg = baseline["config"], current["config"]
     for path in sorted(set(before_cfg) | set(now_cfg)):

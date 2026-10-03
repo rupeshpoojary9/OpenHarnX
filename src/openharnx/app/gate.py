@@ -99,22 +99,27 @@ def _gate_contract(base: Path, base_sha: str, head_sha: str) -> dict[str, Any]:
                 "command": [*PYTEST, "{protected}"],
             }
         )
-    js_suite = _js_suite(base, defaults)
-    if js_suite is not None:
-        locked = _lock_js_tests(base, base.parent / "locked-js")
-        if locked:
-            obligations.append(
-                {
-                    "id": "locked-js-tests" if obligations else "locked-tests",
-                    "kind": "regression",
-                    "mandatory": False,
-                    "protected": str(locked),
-                    # The base's test files laid over a copy of the tree in place of the
-                    # pull request's, wherever they are (T82).
-                    "protected_at": ".",
-                    "command": js_suite,
-                }
-            )
+    # TypeScript, JavaScript and Go tests sit next to the code: the base's test files are
+    # laid over a copy of the tree in place of the pull request's, wherever they are (T82).
+    suites = {
+        lang: suite
+        for lang, suite in (("js", _js_suite(base, defaults)), ("go", _go_suite(base)))
+        if suite is not None
+    }
+    locked = _lock_overlay_tests(base, base.parent / "locked-overlay") if suites else None
+    for lang, suite in suites.items():
+        if locked is None:
+            break
+        obligations.append(
+            {
+                "id": f"locked-{lang}-tests" if obligations else "locked-tests",
+                "kind": "regression",
+                "mandatory": False,
+                "protected": str(locked),
+                "protected_at": ".",
+                **_suite_fields(suite),
+            }
+        )
     if "obligations" in defaults:
         obligations += [dict(o) for o in defaults["obligations"]]
     else:
@@ -127,13 +132,14 @@ def _gate_contract(base: Path, base_sha: str, head_sha: str) -> dict[str, Any]:
                     "command": [*PYTEST, "tests"],
                 }
             )
-        if js_suite is not None:
+        for lang, suite in suites.items():
+            taken = {o["id"] for o in obligations}
             obligations.append(
                 {
-                    "id": "js-tests" if (base / "tests").is_dir() else "tests",
+                    "id": "tests" if "tests" not in taken else f"{lang}-tests",
                     "kind": "regression",
                     "mandatory": False,
-                    "command": js_suite,
+                    **_suite_fields(suite),
                 }
             )
     if not obligations:
@@ -174,10 +180,25 @@ def _js_suite(base: Path, defaults: dict[str, Any]) -> list[str] | None:
     return list(JS_SUITES[runner])
 
 
-def _lock_js_tests(base: Path, dest: Path) -> Path | None:
-    """Copy the base's TypeScript and JavaScript test files, at their paths, into `dest`."""
+GO_ENV = {"GOTOOLCHAIN": "local", "GOFLAGS": "-mod=readonly", "GOCACHE": "{tmp}/go-build"}
+GO_SUITE = ["go", "test", "-json", "-count=1", "./..."]
+
+
+def _go_suite(base: Path) -> list[str] | None:
+    return list(GO_SUITE) if (base / "go.mod").is_file() else None
+
+
+def _suite_fields(suite: list[str]) -> dict[str, Any]:
+    fields: dict[str, Any] = {"command": suite}
+    if suite[0] == "go":
+        fields["env"] = dict(GO_ENV)
+    return fields
+
+
+def _lock_overlay_tests(base: Path, dest: Path) -> Path | None:
+    """Copy the base's TypeScript, JavaScript and Go test files, at their paths, into `dest`."""
     tracked = _git(base, "ls-files", "-z").split("\0")
-    files = [f for f in tracked if f and f.endswith(JS_SOURCE) and is_test_file(f)]
+    files = [f for f in tracked if f and f.endswith((*JS_SOURCE, ".go")) and is_test_file(f)]
     if not files:
         return None
     for rel in files:

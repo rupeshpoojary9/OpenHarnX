@@ -12,6 +12,7 @@ suite that was already failing cannot be compared: unknown, never a pass.
 
 from __future__ import annotations
 
+import json
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -105,6 +106,30 @@ def read_results(path: Path, root: Path | None = None) -> dict[str, str] | None:
     """Per-test outcome (pass, fail or skip) by test id; None when not available."""
     details = read_details(path, root)
     return None if details is None else {t: o for t, (o, _) in details.items()}
+
+
+def read_go_results(output: bytes) -> dict[str, str] | None:
+    """Per-test outcome by `package::Test` from `go test -json` output; None without events.
+
+    Lines that are not events (build errors) are ignored. A test reported both passing and
+    failing counts as failing, so output a test prints cannot turn its failure into a pass."""
+    results: dict[str, str] = {}
+    rank = {"pass": 0, "skip": 1, "fail": 2}
+    for line in output.splitlines():
+        if not line.startswith(b"{"):
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict) or event.get("Action") not in rank:
+            continue
+        package, test = event.get("Package"), event.get("Test")
+        if not isinstance(package, str) or not isinstance(test, str):
+            continue  # package-level result
+        test_id = f"{package}::{test}"
+        results[test_id] = max(event["Action"], results.get(test_id, "pass"), key=rank.__getitem__)
+    return results or None
 
 
 def baseline(outcome: str, tests: dict[str, str] | None) -> dict[str, Any]:

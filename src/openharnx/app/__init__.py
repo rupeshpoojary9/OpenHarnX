@@ -23,7 +23,7 @@ from openharnx.mutation import PROBE_ENV, Mutant, changed_lines
 from openharnx.mutation import select as select_mutants
 from openharnx.regression import baseline as regression_baseline
 from openharnx.regression import compare as compare_regression
-from openharnx.regression import junit_env, read_results
+from openharnx.regression import junit_env, read_go_results, read_results
 from openharnx.report import READINESS, render_markdown
 from openharnx.sandbox import find_srt
 from openharnx.signing import (
@@ -246,7 +246,20 @@ def new_contract(
             "mandatory": True,
             "protected": os.path.relpath(path, folder),
         }
-        if path.name.endswith(JS_SOURCE):
+        if path.name.endswith("_test.go"):
+            # A Go test belongs to its package: the locked copy runs at its own path with
+            # the rest of the package (T82).
+            if not path.is_relative_to(root):
+                raise UsageError(f"{path.name}: Go acceptance tests must be inside the repository")
+            rel = path.relative_to(root)
+            ob["protected_at"] = str(rel)
+            ob["command"] = ["go", "test", "-count=1", f"./{rel.parent.as_posix()}"]
+            ob["env"] = {
+                "GOTOOLCHAIN": "local",
+                "GOFLAGS": "-mod=readonly",
+                "GOCACHE": "{tmp}/go-build",
+            }
+        elif path.name.endswith(JS_SOURCE):
             # TypeScript and JavaScript tests import the code next to them, so the locked
             # copy runs at its own path in a copy of the tree (T82).
             if not path.is_relative_to(root):
@@ -430,7 +443,7 @@ def _regression_run(
         python=python,
         extra_env=junit_env(junit),
     )
-    return r.outcome, read_results(junit, root)
+    return r.outcome, read_results(junit, root) or read_go_results(r.output)
 
 
 def _regression_baselines(
@@ -479,7 +492,7 @@ def _copy_tree(manifest: dict[str, Any], root: Path, dest: Path, skip: str | Non
     for e in manifest["entries"]:
         rel = e["path"]
         if skip == OVERLAY:
-            if is_test_file(rel) and rel.endswith(JS_SOURCE):
+            if is_test_file(rel) and rel.endswith((*JS_SOURCE, ".go")):
                 continue
         elif skip is not None and (rel == skip or rel.startswith(skip + "/")):
             continue
@@ -750,7 +763,10 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                     extra_env=junit_env(junit) if ob["id"] in baselines else None,
                 )
                 if ob["id"] in baselines:
-                    regression_runs[ob["id"]] = (r.outcome, read_results(junit, where))
+                    regression_runs[ob["id"]] = (
+                        r.outcome,
+                        read_results(junit, where) or read_go_results(r.output),
+                    )
                 outcome, exit_code, out, ms, argv = (
                     r.outcome,
                     r.exit_code,
