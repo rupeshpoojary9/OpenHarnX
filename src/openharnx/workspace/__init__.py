@@ -28,6 +28,11 @@ def _norm(path: str) -> str:
     return unicodedata.normalize("NFC", path.replace(os.sep, "/"))
 
 
+def file_digest(path: Path) -> str:
+    """The digest a manifest records for one file."""
+    return _file_digest(path)
+
+
 def _file_digest(path: Path) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as fh:

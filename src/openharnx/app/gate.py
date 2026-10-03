@@ -72,9 +72,10 @@ def _gate_contract(base: Path, base_sha: str, head_sha: str) -> dict[str, Any]:
                 "kind": "regression",
                 "mandatory": False,
                 "protected": str(base / "tests"),
-                # A fixed rootdir names each test the same in the base and the candidate
-                # run; otherwise pytest derives it from the working directory.
-                "command": [*PYTEST, "--rootdir", "{protected}", "{protected}"],
+                # Run inside a copy of the tree with tests/ replaced by the locked copy,
+                # so tests see the repository's layout and keep the same names (RC-31).
+                "protected_at": "tests",
+                "command": [*PYTEST, "{protected}"],
             }
         )
     if "obligations" in defaults:

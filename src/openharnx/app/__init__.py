@@ -41,6 +41,7 @@ from openharnx.workspace import (
     NotARepository,
     build_manifest,
     changed_paths,
+    file_digest,
     git_user,
     repo_root,
     root_commit,
@@ -363,6 +364,15 @@ def _regression_run(
     protected: Path | None = None,
 ) -> tuple[str, dict[str, str] | None]:
     junit = run_dir / "tmp" / f"junit-{ob['id']}.xml"
+    if protected is not None and ob.get("protected_at"):
+        at = ob["protected_at"]
+        try:
+            root = _tree_view(
+                build_manifest(root), root, protected, at, run_dir / f"tree-{ob['id']}"
+            )
+        except _TreeChanged:
+            return "invalid", None
+        protected = root / at
     r = run_obligation(
         ob,
         candidate=root,
@@ -404,6 +414,37 @@ def _regression_baselines(
             baselines[ob["id"]] = regression_baseline(*ran)
         obligations.append(_no_new_failures(ob["id"], len(advisory) == 1))
     return baselines
+
+
+class _TreeChanged(Exception):
+    """A file changed while the tree was being copied for a locked run."""
+
+
+def _tree_view(manifest: dict[str, Any], root: Path, protected: Path, at: str, dest: Path) -> Path:
+    """A copy of the tree as `manifest` records it, with `at` replaced by the locked copy.
+
+    Locked tests then run where they would run in the repository, so tests that find
+    files relative to their own location work (RC-31). Each copied file is checked
+    against its digest: the copy is the judged candidate, or the run is invalid.
+    """
+    for e in manifest["entries"]:
+        rel = e["path"]
+        if rel == at or rel.startswith(at + "/") or e["type"] not in ("file", "symlink"):
+            continue
+        src, dst = root / rel, dest / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if e["type"] == "symlink":
+            os.symlink(os.readlink(src), dst)
+            continue
+        shutil.copy2(src, dst)
+        if file_digest(dst) != e["digest"]:
+            raise _TreeChanged(f"{rel} changed while the tree was being copied")
+    if protected.is_dir():
+        shutil.copytree(protected, dest / at, ignore=shutil.ignore_patterns("__pycache__"))
+    else:
+        (dest / at).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(protected, dest / at)
+    return dest
 
 
 def _files(manifest: dict[str, Any]) -> list[str]:
@@ -531,9 +572,37 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                 outcome, exit_code, out, ms, argv = "invalid", None, b"", 0, ob["command"]
             else:
                 junit = run_dir / "tmp" / f"junit-{ob['id']}.xml"
+                where = root
+                if protected is not None and ob.get("protected_at"):
+                    at = ob["protected_at"]
+                    try:
+                        where = _tree_view(
+                            before, root, protected, at, run_dir / f"tree-{ob['id']}"
+                        )
+                    except _TreeChanged as exc:
+                        where, note = root, str(exc)
+                    protected = where / at
+                if note:
+                    outcome, exit_code, out, ms, argv = "invalid", None, b"", 0, ob["command"]
+                    raw_obs.append(
+                        {
+                            "obligation_id": ob["id"],
+                            "subject_digest": before["digest"],
+                            "contract_revision": contract.revision_id,
+                            "outcome": outcome,
+                            "note": note,
+                            "exit_code": exit_code,
+                            "duration_ms": ms,
+                            "argv": argv,
+                            "output_blob": store.put_blob(out),
+                            "producer": "openharnx.verify",
+                            "protection": ob_protection,
+                        }
+                    )
+                    continue
                 r = run_obligation(
                     ob,
-                    candidate=root,
+                    candidate=where,
                     protected=protected,
                     run_dir=run_dir,
                     srt=srt,
