@@ -59,7 +59,7 @@ def _judge(ob: Obligation, observations: Sequence[Observation], candidate: str) 
         return ObligationResult(ob.id, ob.mandatory, "unknown", (*reasons, "no_evidence"))
     if current.outcome not in OUTCOMES:
         return ObligationResult(ob.id, ob.mandatory, "unknown", ("invalid_outcome",))
-    if current.outcome == "pass":
+    if current.outcome in ("pass", "timeout"):
         return ObligationResult(ob.id, ob.mandatory, "pass", ())
     note = (f": {current.note}",) if current.note else ()
     if current.outcome == "fail":

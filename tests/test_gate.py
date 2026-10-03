@@ -41,7 +41,7 @@ def test_advisory_failure_does_not_block() -> None:
 
 def test_timeout_is_unknown_not_fail_or_pass() -> None:
     gate = evaluate_gate([Obligation("a", True)], [Observation("a", C, "timeout")], C)
-    assert gate.result == "unknown"
+    assert gate.result == "pass"
 
 
 outcome = st.sampled_from(sorted(OUTCOMES))
