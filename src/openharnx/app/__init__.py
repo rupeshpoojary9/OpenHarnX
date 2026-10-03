@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import shutil
@@ -18,6 +19,8 @@ from openharnx.environment import LOCKFILE, EnvironmentUnavailable, ensure
 from openharnx.kernel.canonical import digest
 from openharnx.kernel.contract import validate_contract
 from openharnx.kernel.gate import GateEvaluation, Obligation, Observation, evaluate_gate
+from openharnx.mutation import PROBE_ENV, Mutant, changed_lines
+from openharnx.mutation import select as select_mutants
 from openharnx.regression import baseline as regression_baseline
 from openharnx.regression import compare as compare_regression
 from openharnx.regression import junit_env, read_results
@@ -146,10 +149,12 @@ def accept_contract(
         base = baseline_root or root
         if any(ob.get("builtin") or _reserved(ob["id"]) for ob in obligations):
             raise UsageError(
-                f"obligation ids {WEAKENING!r} and {NO_NEW_FAILURES!r}..., and `builtin`,"
-                " are reserved"
+                f"obligation ids {WEAKENING!r}, {MUTATION!r} and {NO_NEW_FAILURES!r}..., and"
+                " `builtin`, are reserved"
             )
         obligations.append(dict(WEAKENING_OBLIGATION))
+        if any(ob.get("kind") == "acceptance" for ob in obligations):
+            obligations.append(dict(MUTATION_OBLIGATION))
         environment = _lock_environment(raw, pdir, base)
         baselines = _regression_baselines(obligations, raw, environment, pdir, base, sandbox, root)
         accepted_tree = build_manifest(base)
@@ -300,11 +305,24 @@ WEAKENING_OBLIGATION: dict[str, Any] = {
 }
 
 NO_NEW_FAILURES = "no-new-failures"
+
+MUTATION = "mutation"
+# Added at acceptance to contracts with acceptance tests (T87 item 5). Advisory: it names
+# the mutants of the change that the acceptance tests let through, and never blocks.
+MUTATION_OBLIGATION: dict[str, Any] = {
+    "id": MUTATION,
+    "kind": "check",
+    "mandatory": False,
+    "builtin": MUTATION,
+    "command": ["ohx", "builtin", MUTATION],
+    "timeout_s": 300,
+    "env": {},
+}
 DENY_READ = ["~/.ssh"]  # plus the keys directory, see _deny_read
 
 
 def _reserved(obligation_id: str) -> bool:
-    return obligation_id == WEAKENING or obligation_id.startswith(NO_NEW_FAILURES)
+    return obligation_id in (WEAKENING, MUTATION) or obligation_id.startswith(NO_NEW_FAILURES)
 
 
 def _no_new_failures(of: str, single: bool) -> dict[str, Any]:
@@ -420,16 +438,13 @@ class _TreeChanged(Exception):
     """A file changed while the tree was being copied for a locked run."""
 
 
-def _tree_view(manifest: dict[str, Any], root: Path, protected: Path, at: str, dest: Path) -> Path:
-    """A copy of the tree as `manifest` records it, with `at` replaced by the locked copy.
-
-    Locked tests then run where they would run in the repository, so tests that find
-    files relative to their own location work (RC-31). Each copied file is checked
-    against its digest: the copy is the judged candidate, or the run is invalid.
-    """
+def _copy_tree(manifest: dict[str, Any], root: Path, dest: Path, skip: str | None = None) -> None:
+    """Copy the tree as `manifest` records it, checking each file against its digest."""
     for e in manifest["entries"]:
         rel = e["path"]
-        if rel == at or rel.startswith(at + "/") or e["type"] not in ("file", "symlink"):
+        if skip is not None and (rel == skip or rel.startswith(skip + "/")):
+            continue
+        if e["type"] not in ("file", "symlink"):
             continue
         src, dst = root / rel, dest / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
@@ -439,6 +454,16 @@ def _tree_view(manifest: dict[str, Any], root: Path, protected: Path, at: str, d
         shutil.copy2(src, dst)
         if file_digest(dst) != e["digest"]:
             raise _TreeChanged(f"{rel} changed while the tree was being copied")
+
+
+def _tree_view(manifest: dict[str, Any], root: Path, protected: Path, at: str, dest: Path) -> Path:
+    """A copy of the tree as `manifest` records it, with `at` replaced by the locked copy.
+
+    Locked tests then run where they would run in the repository, so tests that find
+    files relative to their own location work (RC-31). Each copied file is checked
+    against its digest: the copy is the judged candidate, or the run is invalid.
+    """
+    _copy_tree(manifest, root, dest, skip=at)
     if protected.is_dir():
         shutil.copytree(protected, dest / at, ignore=shutil.ignore_patterns("__pycache__"))
     else:
@@ -568,6 +593,11 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
             elif env_note:
                 outcome, exit_code, out, ms, argv = env_outcome, None, b"", 0, ob["command"]
                 note = env_note
+            elif ob.get("builtin") == MUTATION:
+                outcome, note, out, ms = _mutation_check(
+                    contract.body, raw_obs, before, root, pdir, run_dir, srt, python
+                )
+                exit_code, argv = None, ob["command"]
             elif note:
                 outcome, exit_code, out, ms, argv = "invalid", None, b"", 0, ob["command"]
             else:
@@ -701,6 +731,126 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
         return rec, run_dir
     finally:
         store.close()
+
+
+def _mutation_check(
+    body: dict[str, Any],
+    raw_obs: list[dict[str, Any]],
+    manifest: dict[str, Any],
+    root: Path,
+    pdir: Path,
+    run_dir: Path,
+    srt: Path | None,
+    python: str,
+) -> tuple[str, str, bytes, int]:
+    """Run the acceptance tests against mutants of the change's own lines (T87 item 5).
+
+    Mutants run one at a time in a copy of the tree at a fixed place in the store, so a
+    protected checker environment can be built once for that copy and import from it."""
+    start = time.monotonic()
+
+    def done(outcome: str, note: str, out: bytes = b"") -> tuple[str, str, bytes, int]:
+        return outcome, note, out, int((time.monotonic() - start) * 1000)
+
+    acceptance = [ob for ob in body["obligations"] if ob.get("kind") == "acceptance"]
+    outcomes = {o["obligation_id"]: o["outcome"] for o in raw_obs}
+    if not acceptance or any(outcomes.get(ob["id"]) != "pass" for ob in acceptance):
+        return done("unavailable", "acceptance tests did not pass, so mutants were not run")
+    base = manifest.get("base_commit")
+    if not base:
+        return done("unavailable", "no base commit to compare the change with")
+    try:
+        chosen = select_mutants(root, changed_lines(root, base, _files(manifest)))
+    except (ValueError, OSError, UnicodeDecodeError) as exc:
+        return done("unavailable", f"the changed lines are unknown: {exc}")
+    if not chosen:
+        return done("unavailable", "no changed source lines to mutate")
+
+    work = pdir / "mutation"
+    work.mkdir(parents=True, exist_ok=True)
+    with open(work / ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)  # one copy per project; verifications take turns
+        tree = work / "tree"
+        shutil.rmtree(tree, ignore_errors=True)
+        try:
+            _copy_tree(manifest, root, tree)
+        except _TreeChanged as exc:
+            return done("invalid", str(exc))
+        environment = body.get("environment")
+        if environment:
+            try:
+                python = str(_checker_environment(environment, pdir, tree))
+            except (_EnvironmentChanged, EnvironmentUnavailable) as exc:
+                return done("unavailable", f"no checker environment for the copy: {exc}")
+        results: list[tuple[Mutant, str]] = []
+        for k, mutant in enumerate(chosen):
+            target = tree / mutant.path
+            original = target.read_bytes()
+            target.write_text(mutant.source, encoding="utf-8")
+            try:
+                status = _run_mutant(
+                    acceptance, tree, pdir, run_dir / "mutants" / str(k), srt, python
+                )
+            finally:
+                target.write_bytes(original)
+            results.append((mutant, status))
+
+    def named(status: str) -> list[str]:
+        return [f"{m.path}:{m.line} `{m.before}` -> `{m.after}`" for m, s in results if s == status]
+
+    killed, survived = named("killed"), named("survived")
+    exercised = len(killed) + len(survived)
+    extra = [f"{n} {label}" for label in ("not exercised", "not run") if (n := len(named(label)))]
+    out = "\n".join(f"{s}: {m.path}:{m.line} `{m.before}` -> `{m.after}`" for m, s in results)
+    tail = f"; {', '.join(extra)}" if extra else ""
+    if survived:
+        note = (
+            f"{len(survived)} of {exercised} mutants of changed lines survived: "
+            + "; ".join(survived)
+            + tail
+        )
+        return done("fail", note, out.encode())
+    if killed:
+        return done(
+            "pass",
+            f"{len(killed)} of {exercised} mutants of changed lines killed{tail}",
+            out.encode(),
+        )
+    return done(
+        "unavailable",
+        "no mutant was exercised: the acceptance tests did not import the changed files"
+        f" from the copy{tail}",
+        out.encode(),
+    )
+
+
+def _run_mutant(
+    acceptance: list[dict[str, Any]],
+    tree: Path,
+    pdir: Path,
+    mdir: Path,
+    srt: Path | None,
+    python: str,
+) -> str:
+    """killed, survived, not exercised (the mutated file was never imported) or not run."""
+    probe = mdir / "tmp" / "imported"
+    for ob in acceptance:
+        protected = pdir / ob["protected_store_path"] if "protected_store_path" in ob else None
+        r = run_obligation(
+            ob,
+            candidate=tree,
+            protected=protected,
+            run_dir=mdir,
+            srt=srt,
+            deny_read=_deny_read(),
+            python=python,
+            extra_env={PROBE_ENV: str(probe)},
+        )
+        if r.outcome == "unavailable" or r.sandbox_started is False:
+            return "not run"
+        if r.outcome != "pass":
+            return "killed"
+    return "survived" if probe.exists() else "not exercised"
 
 
 def _regression_limitations(body: dict[str, Any]) -> list[str]:
