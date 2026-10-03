@@ -11,7 +11,15 @@ OpenHarnX is a local-first delivery system that plans, staffs, controls and veri
 
 ## Status
 
-**Early bootstrap. Nothing product-facing works yet.** This repository currently contains only the build, test and packaging foundation (task T02) and an `ohx doctor` command that checks the local environment. Evidence capture, gates, reports, teams and every other capability described in the specifications are planned, not implemented.
+**Early, private, not yet released.** What works today, on macOS with Python projects tested with pytest:
+
+- **The gate.** `ohx contract new --accept` locks a contract and protected copies of its acceptance tests; `ohx verify --sandbox srt` runs every check in the `srt` sandbox and gives READY, BLOCKED, UNKNOWN or INVALID. It blocks weakened checks, broken tests that passed before, and checkers supplied by the candidate. No model calls.
+- **Evidence.** A hash-chained local store, signed with the owner's SSH key; `ohx report`, `ohx audit` (who did what and touched what) and `ohx store check`.
+- **`ohx bug`.** An agent (Claude Code) investigates read-only, the owner approves the rule and the tests, the agent fixes, the gate verifies.
+
+The public gate has its own release boundary: [docs/gate-release-criteria.md](docs/gate-release-criteria.md). It is not yet met (Linux in CI, untrusted pull requests, a public install).
+
+**Not supported yet:** Linux outside CI, Windows, languages other than Python, test runners other than pytest, more than one agent at a time. On anything outside the supported list OpenHarnX makes no claim of protection.
 
 ## Specifications
 
