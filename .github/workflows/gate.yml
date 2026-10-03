@@ -1,0 +1,64 @@
+# OpenHarnX gate: judge a pull request against its base commit (T79).
+#
+# Trust: the gate is installed from the base commit, never from the pull
+# request; the pull request is checked out separately and only judged. Read-only
+# token, no secrets, no model calls. Actions are pinned to commit SHAs.
+# Limit (GitHub): on pull_request the workflow file itself comes from the pull
+# request. Protect it with branch protection and approval for outside
+# contributors' workflows.
+name: OpenHarnX gate
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Allow the sandbox's user namespaces (Ubuntu 24.04 restricts them)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Check out the base commit (trusted; the gate comes from here)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted
+          persist-credentials: false
+
+      - name: Check out the pull request (judged, never installed)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install the sandbox
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap socat ripgrep
+          npm install -g @anthropic-ai/sandbox-runtime@0.0.77
+
+      - name: Install the gate from the base commit
+        run: |
+          python3 -m venv "$RUNNER_TEMP/ohx"
+          "$RUNNER_TEMP/ohx/bin/pip" install -q uv ./trusted
+          echo "$RUNNER_TEMP/ohx/bin" >> "$GITHUB_PATH"
+
+      - name: Run the gate
+        working-directory: candidate
+        env:
+          OHX_SIGNING_KEY: none
+        run: ohx gate --base "${{ github.event.pull_request.base.sha }}" --sandbox srt --out "$RUNNER_TEMP/ohx-gate"
+
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ohx-gate-report
+          path: ${{ runner.temp }}/ohx-gate
+          if-no-files-found: warn
