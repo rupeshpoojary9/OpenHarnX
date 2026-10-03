@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/openharnx-logo.png" alt="OpenHarnX" width="600"></p>
+
 # OpenHarnX
 
 OpenHarnX is a local-first delivery system that plans, staffs, controls and verifies work done by existing coding agents such as Claude Code and Codex, and learns which team configurations actually work.
