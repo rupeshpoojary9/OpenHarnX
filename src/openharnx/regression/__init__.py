@@ -21,26 +21,69 @@ MAX_JUNIT_BYTES = 50_000_000
 LISTED = 20  # test names shown per category
 
 
+JUNIT_ENV = "OHX_JUNIT"
+
+
 def junit_env(path: Path) -> dict[str, str]:
-    """Environment that makes pytest write per-test results to `path`."""
-    return {"PYTEST_ADDOPTS": f"--junitxml={path}"}
+    """Environment that makes pytest write per-test results to `path`.
+
+    Other runners write JUnit XML when their command uses the `{junit}` placeholder,
+    which names the same path (T82)."""
+    return {"PYTEST_ADDOPTS": f"--junitxml={path}", JUNIT_ENV: str(path)}
 
 
-def read_details(path: Path) -> dict[str, tuple[str, str]] | None:
+def _relative(file: str, root: Path | None) -> str:
+    if root is None:
+        return file
+    for base in (root, root.resolve()):
+        try:
+            return str(Path(file).resolve().relative_to(base.resolve()))
+        except ValueError:
+            try:
+                return str(Path(file).relative_to(base))
+            except ValueError:
+                continue
+    return file
+
+
+def _cases(node: ET.Element, suites: tuple[str, ...]) -> list[tuple[ET.Element, tuple[str, ...]]]:
+    found: list[tuple[ET.Element, tuple[str, ...]]] = []
+    for child in node:
+        if child.tag == "testcase":
+            found.append((child, suites))
+        elif child.tag == "testsuite":
+            found += _cases(child, (*suites, child.get("name", "")))
+    return found
+
+
+def read_details(path: Path, root: Path | None = None) -> dict[str, tuple[str, str]] | None:
     """Per-test outcome (pass, fail or skip) and failure reason by test id.
 
     The reason is the exception name when the failure names one, AssertionError
-    for a failed assert; None when results are not available.
+    for a failed assert; None when results are not available. A test case with a
+    `file` attribute (Node's runner, whose class name is always "test") is named by
+    its file relative to `root` and its enclosing suites; others by class name, as
+    pytest's ids have always been.
     """
     try:
         if not path.is_file() or path.stat().st_size > MAX_JUNIT_BYTES:
             return None
-        root = ET.parse(path).getroot()
+        tree = ET.parse(path).getroot()
     except (OSError, ET.ParseError):
         return None
     results: dict[str, tuple[str, str]] = {}
-    for case in root.iter("testcase"):
-        test_id = f"{case.get('classname', '')}::{case.get('name', '')}"
+    seen: set[str] = set()
+    for case, suites in _cases(tree, ()):
+        file = case.get("file")
+        if file or case.get("classname") == "test":
+            # Node's runner: class name always "test"; Node 22 writes no file name.
+            name = " > ".join((*suites, case.get("name", "")))
+            test_id = f"{_relative(file, root) if file else 'test'}::{name}"
+            if test_id in seen:
+                return None  # two tests share an id: per-test results would merge them
+            seen.add(test_id)
+        else:
+            test_id = f"{case.get('classname', '')}::{case.get('name', '')}"
         failed = [c for c in case if c.tag in ("failure", "error")]
         if failed:
             results[test_id] = ("fail", _reason(failed[0].get("message", "")))
@@ -58,9 +101,9 @@ def _reason(message: str) -> str:
     return "AssertionError" if message.startswith("assert") else "failure"
 
 
-def read_results(path: Path) -> dict[str, str] | None:
+def read_results(path: Path, root: Path | None = None) -> dict[str, str] | None:
     """Per-test outcome (pass, fail or skip) by test id; None when not available."""
-    details = read_details(path)
+    details = read_details(path, root)
     return None if details is None else {t: o for t, (o, _) in details.items()}
 
 

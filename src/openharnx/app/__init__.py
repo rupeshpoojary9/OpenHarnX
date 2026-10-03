@@ -38,6 +38,7 @@ from openharnx.signing import (
 from openharnx.signing import message as signed_message
 from openharnx.store import Record, Store
 from openharnx.verify import run_obligation
+from openharnx.weakening import JS_SOURCE
 from openharnx.weakening import compare as compare_weakening
 from openharnx.weakening import snapshot as weakening_snapshot
 from openharnx.workspace import (
@@ -239,23 +240,27 @@ def new_contract(
         path = (cwd / path).resolve()
         if not path.exists():
             raise UsageError(f"acceptance tests not found: {path}")
-        obligations.append(
-            {
-                "id": f"acceptance-{path.stem}",
-                "kind": "acceptance",
-                "mandatory": True,
-                "protected": os.path.relpath(path, folder),
-                "command": [
-                    "{python}",
-                    "-m",
-                    "pytest",
-                    "-q",
-                    "-p",
-                    "no:cacheprovider",
-                    "{protected}",
-                ],
-            }
-        )
+        ob: dict[str, Any] = {
+            "id": f"acceptance-{_slug(path.name.split('.')[0])}",
+            "kind": "acceptance",
+            "mandatory": True,
+            "protected": os.path.relpath(path, folder),
+        }
+        if path.name.endswith(JS_SOURCE):
+            # TypeScript and JavaScript tests import the code next to them, so the locked
+            # copy runs at its own path in a copy of the tree (T82).
+            if not path.is_relative_to(root):
+                raise UsageError(
+                    f"{path.name}: TypeScript and JavaScript acceptance tests must be inside"
+                    " the repository, because they run at their own path"
+                )
+            ob["protected_at"] = str(path.relative_to(root))
+            ob["command"] = _js_test_command(root, defaults)
+        else:
+            ob["id"] = f"acceptance-{path.stem}"
+            ob["command"] = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+            ob["command"].append("{protected}")
+        obligations.append(ob)
     if "obligations" in defaults:
         obligations += [dict(o) for o in defaults["obligations"]]
     elif (root / "tests").is_dir():
@@ -290,6 +295,24 @@ def new_contract(
     if accept:
         accept_contract(cwd, path, sandbox=sandbox)
     return path
+
+
+JS_RUNNERS: dict[str, list[str]] = {
+    "vitest": ["node_modules/.bin/vitest", "run", "{protected}"],
+    "jest": ["node_modules/.bin/jest", "--ci", "{protected}"],
+    "node": ["node", "--test", "{protected}"],
+}
+
+
+def _js_test_command(root: Path, defaults: dict[str, Any]) -> list[str]:
+    """`js_runner` from ohx.toml, else Vitest or Jest when installed, else Node's own runner."""
+    runner = defaults.get("js_runner")
+    if runner is None:
+        bins = root / "node_modules" / ".bin"
+        runner = next((r for r in ("vitest", "jest") if (bins / r).exists()), "node")
+    if runner not in JS_RUNNERS:
+        raise UsageError(f"js_runner must be one of {sorted(JS_RUNNERS)}")
+    return list(JS_RUNNERS[runner])
 
 
 WEAKENING = "weakening"
@@ -401,7 +424,7 @@ def _regression_run(
         python=python,
         extra_env=junit_env(junit),
     )
-    return r.outcome, read_results(junit)
+    return r.outcome, read_results(junit, root)
 
 
 def _regression_baselines(
@@ -456,6 +479,14 @@ def _copy_tree(manifest: dict[str, Any], root: Path, dest: Path, skip: str | Non
             raise _TreeChanged(f"{rel} changed while the tree was being copied")
 
 
+def _link_node_modules(root: Path, dest: Path) -> None:
+    """Git ignores node_modules, so the copy lacks it; tests there resolve packages from
+    the candidate's own (named in the report's limitations)."""
+    modules = root / "node_modules"
+    if modules.is_dir() and not (dest / "node_modules").exists():
+        (dest / "node_modules").symlink_to(modules.resolve())
+
+
 def _tree_view(manifest: dict[str, Any], root: Path, protected: Path, at: str, dest: Path) -> Path:
     """A copy of the tree as `manifest` records it, with `at` replaced by the locked copy.
 
@@ -464,6 +495,7 @@ def _tree_view(manifest: dict[str, Any], root: Path, protected: Path, at: str, d
     against its digest: the copy is the judged candidate, or the run is invalid.
     """
     _copy_tree(manifest, root, dest, skip=at)
+    _link_node_modules(root, dest)
     if protected.is_dir():
         shutil.copytree(protected, dest / at, ignore=shutil.ignore_patterns("__pycache__"))
     else:
@@ -641,7 +673,7 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                     extra_env=junit_env(junit) if ob["id"] in baselines else None,
                 )
                 if ob["id"] in baselines:
-                    regression_runs[ob["id"]] = (r.outcome, read_results(junit))
+                    regression_runs[ob["id"]] = (r.outcome, read_results(junit, where))
                 outcome, exit_code, out, ms, argv = (
                     r.outcome,
                     r.exit_code,
@@ -719,6 +751,7 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                 f"{before['ignored_present']} ignored file(s) present and not in the candidate"
                 " identity",
                 *_interpreter_limitations(environment, python, root),
+                *_node_modules_limitations(contract.body, root),
                 *_regression_limitations(contract.body),
             ],
             "authorizes": "It is evidence of readiness, not permission to merge, deploy or"
@@ -764,7 +797,7 @@ def _mutation_check(
     except (ValueError, OSError, UnicodeDecodeError) as exc:
         return done("unavailable", f"the changed lines are unknown: {exc}")
     if not chosen:
-        return done("unavailable", "no changed source lines to mutate")
+        return done("unavailable", "no changed source lines to mutate (Python only)")
 
     work = pdir / "mutation"
     work.mkdir(parents=True, exist_ok=True)
@@ -776,6 +809,11 @@ def _mutation_check(
             _copy_tree(manifest, root, tree)
         except _TreeChanged as exc:
             return done("invalid", str(exc))
+        _link_node_modules(root, tree)
+        for ob in acceptance:  # locked tests that run at their own path
+            if ob.get("protected_at") and "protected_store_path" in ob:
+                (tree / ob["protected_at"]).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(pdir / ob["protected_store_path"], tree / ob["protected_at"])
         environment = body.get("environment")
         if environment:
             try:
@@ -836,6 +874,8 @@ def _run_mutant(
     probe = mdir / "tmp" / "imported"
     for ob in acceptance:
         protected = pdir / ob["protected_store_path"] if "protected_store_path" in ob else None
+        if protected is not None and ob.get("protected_at"):
+            protected = tree / ob["protected_at"]
         r = run_obligation(
             ob,
             candidate=tree,
@@ -865,6 +905,20 @@ def _regression_limitations(body: dict[str, Any]) -> list[str]:
     return [
         f"Advisory regression suite(s) {', '.join(unchecked)} not compared with a baseline:"
         " this contract was accepted before baselines existed"
+    ]
+
+
+def _node_modules_limitations(body: dict[str, Any], root: Path) -> list[str]:
+    """Name the blind spot when JavaScript checkers resolve packages from the candidate."""
+    uses_node = any(
+        "node_modules" in " ".join(ob.get("command", [])) or ob.get("command", [""])[0] == "node"
+        for ob in body["obligations"]
+    )
+    if not uses_node or not (root / "node_modules").is_dir():
+        return []
+    return [
+        "JavaScript checkers resolved packages from node_modules in the candidate, which is"
+        " git-ignored and outside the candidate identity, so changes to it are not detected"
     ]
 
 

@@ -8,8 +8,10 @@ is compared with it. Any finding blocks until a contract revision is accepted.
 
 Adding tests needs no approval: a new test file is checked only for
 suppressions, and more tests or assertions in an existing file are fine.
-Python only; counts are per file, so moving a suppression within one file
-is not seen.
+Python, TypeScript and JavaScript (T82); counts are per file, so moving a
+suppression within one file is not seen. Baselines made before TypeScript
+support (version 1) are compared on Python only, so their contracts judge as
+they did.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ import tomllib
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-BASELINE_VERSION = 1
+BASELINE_VERSION = 2
 
 # Files that configure checkers, wherever they are (ruff and pytest read nested ones).
 CONFIG_NAMES = frozenset(
@@ -45,6 +47,39 @@ CONFIG_NAMES = frozenset(
     }
 )
 
+# TypeScript and JavaScript (T82). Checker configuration found by name pattern, since each
+# tool accepts several file names and extensions.
+JS_SOURCE = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
+_JS_CONFIG = re.compile(
+    r"^(?:tsconfig(?:\.[\w-]+)*\.json|jsconfig\.json"
+    r"|(?:vitest|vite|jest|babel|playwright)\.(?:config|workspace|setup)\.[cm]?[jt]s"
+    r"|vitest\.workspace\.json|jest\.setup\.[cm]?[jt]s|setupTests\.[cm]?[jt]sx?"
+    r"|\.eslintrc(?:\.(?:js|cjs|json|ya?ml))?|eslint\.config\.[cm]?[jt]s"
+    r"|biome\.jsonc?|\.babelrc(?:\.json)?|\.mocharc(?:\.\w+)?|\.c8rc(?:\.json)?|\.nycrc(?:\.\w+)?)$"
+)
+# package.json keys that configure checkers; scripts only when they run checks.
+_PACKAGE_KEYS = ("jest", "eslintConfig", "mocha", "c8", "nyc", "ava", "vitest")
+_CHECK_SCRIPT = re.compile(r"^(?:test|lint|type|check|format|ci|verify)", re.IGNORECASE)
+
+JS_SUPPRESSIONS = {
+    "@ts-ignore": re.compile(r"@ts-ignore\b"),
+    "@ts-expect-error": re.compile(r"@ts-expect-error\b"),
+    "@ts-nocheck": re.compile(r"@ts-nocheck\b"),
+    "eslint-disable": re.compile(r"\beslint-disable(?:-next-line|-line)?\b"),
+    "biome-ignore": re.compile(r"\bbiome-ignore\b"),
+    "coverage ignore": re.compile(r"\b(?:istanbul|c8|v8)\s+ignore\b"),
+    "skipped or focused test": re.compile(
+        r"(?<![\w$])(?:it|test|describe|suite|context|bench)\s*\.\s*"
+        r"(?:skip|only|fails|skipIf|runIf|todo)\b"
+        r"|(?<![\w$.])(?:xit|xtest|xdescribe|fit|fdescribe)\s*\("
+        r"|\b(?:skip|only|todo)\s*:\s*(?:true|['\"`])"
+        r"|(?<![\w$])t\s*\.\s*(?:skip|todo)\s*\("
+    ),
+}
+_JS_TESTS = re.compile(r"(?<![\w$.])(?:it|test)\s*(?:\.\s*(?:concurrent|each\s*\([^)]*\)))?\s*\(")
+_JS_CHECKS = re.compile(r"(?<![\w$.])(?:expect|assert)\s*(?:\.\s*\w+\s*)?\(")
+_JS_TEST_FILE = re.compile(r"\.(?:test|spec)\.[cm]?[jt]sx?$")
+
 SUPPRESSIONS = {
     "noqa": re.compile(r"#\s*noqa\b", re.IGNORECASE),
     "file-level noqa": re.compile(r"#\s*(?:ruff|flake8)\s*:\s*noqa\b", re.IGNORECASE),
@@ -65,8 +100,13 @@ _CHECKS = re.compile(
 
 
 def is_test_file(path: str) -> bool:
-    name = PurePosixPath(path).name
-    return name.endswith(".py") and (name.startswith("test_") or name.endswith("_test.py"))
+    p = PurePosixPath(path)
+    name = p.name
+    if name.endswith(".py"):
+        return name.startswith("test_") or name.endswith("_test.py")
+    if name.endswith(JS_SOURCE):
+        return bool(_JS_TEST_FILE.search(name)) or "__tests__" in p.parts[:-1]
+    return False
 
 
 def _digest(data: bytes) -> str:
@@ -83,7 +123,25 @@ def _config_digest(path: str, data: bytes) -> str | None:
         if tool is None:
             return None
         return _digest(json.dumps(tool, sort_keys=True).encode())
-    if PurePosixPath(path).name in CONFIG_NAMES:
+    if PurePosixPath(path).name == "package.json":
+        try:
+            package = json.loads(data.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return _digest(data)
+        if not isinstance(package, dict):
+            return _digest(data)
+        scripts = package.get("scripts")
+        checks = {
+            k: v
+            for k, v in (scripts if isinstance(scripts, dict) else {}).items()
+            if _CHECK_SCRIPT.match(k)
+        }
+        part = {k: package[k] for k in _PACKAGE_KEYS if k in package}
+        if checks:
+            part["scripts"] = checks
+        return _digest(json.dumps(part, sort_keys=True).encode()) if part else None
+    name = PurePosixPath(path).name
+    if name in CONFIG_NAMES or _JS_CONFIG.match(name):
         return _digest(data)
     return None
 
@@ -101,15 +159,22 @@ def snapshot(root: Path, paths: list[str]) -> dict[str, Any]:
         cdig = _config_digest(rel, data)
         if cdig is not None:
             config[rel] = cdig
-        if not rel.endswith(".py"):
+        if rel.endswith(".py"):
+            patterns, test_re, check_re = SUPPRESSIONS, _TESTS, _CHECKS
+        elif rel.endswith(JS_SOURCE):
+            patterns, test_re, check_re = JS_SUPPRESSIONS, _JS_TESTS, _JS_CHECKS
+        else:
             continue
         text = data.decode("utf-8", errors="replace")
-        counts = {k: len(p.findall(text)) for k, p in SUPPRESSIONS.items()}
+        counts = {k: len(p.findall(text)) for k, p in patterns.items()}
         counts = {k: n for k, n in counts.items() if n}
         if counts:
             suppressions[rel] = counts
         if is_test_file(rel):
-            tests[rel] = {"tests": len(_TESTS.findall(text)), "checks": len(_CHECKS.findall(text))}
+            tests[rel] = {
+                "tests": len(test_re.findall(text)),
+                "checks": len(check_re.findall(text)),
+            }
     return {
         "version": BASELINE_VERSION,
         "config": config,
@@ -118,8 +183,25 @@ def snapshot(root: Path, paths: list[str]) -> dict[str, Any]:
     }
 
 
+def _python_only(snap: dict[str, Any]) -> dict[str, Any]:
+    """What a version 1 baseline would have recorded: Python files and their configuration."""
+
+    def v1_config(path: str) -> bool:
+        name = PurePosixPath(path).name
+        return name == "pyproject.toml" or name in CONFIG_NAMES
+
+    return {
+        **snap,
+        "config": {k: v for k, v in snap["config"].items() if v1_config(k)},
+        "suppressions": {k: v for k, v in snap["suppressions"].items() if k.endswith(".py")},
+        "tests": {k: v for k, v in snap["tests"].items() if k.endswith(".py")},
+    }
+
+
 def compare(baseline: dict[str, Any], current: dict[str, Any]) -> list[str]:
     """Findings that lower the bar since the baseline; empty means none found."""
+    if baseline.get("version", 1) < 2:
+        current = _python_only(current)
     findings: list[str] = []
     before_cfg, now_cfg = baseline["config"], current["config"]
     for path in sorted(set(before_cfg) | set(now_cfg)):

@@ -88,6 +88,8 @@ def run_obligation(
         "python": python,
         "bindir": str(Path(python).parent),
         "tmp": str(tmp),
+        # Where a JUnit-writing runner puts per-test results (T82); see regression.junit_env.
+        "junit": (extra_env or {}).get("OHX_JUNIT") or str(tmp / f"junit-{obligation['id']}.xml"),
     }
     argv = guard_module_run([_expand(a, subs) for a in obligation["command"]], python)
     child_env = {
