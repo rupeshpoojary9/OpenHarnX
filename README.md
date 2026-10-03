@@ -17,7 +17,7 @@ OpenHarnX is a local-first delivery system that plans, staffs, controls and veri
 - **Evidence.** A hash-chained local store, signed with the owner's SSH key; `ohx report`, `ohx audit` (who did what and touched what) and `ohx store check`.
 - **`ohx bug`.** An agent (Claude Code) investigates read-only, the owner approves the rule and the tests, the agent fixes, the gate verifies.
 
-The public gate has its own release boundary: [docs/gate-release-criteria.md](docs/gate-release-criteria.md). It is not yet met (Linux in CI, untrusted pull requests, a public install).
+The public gate has its own release boundary: [docs/gate-release-criteria.md](docs/gate-release-criteria.md). It is not yet met (the cheat demo, branch protection for the workflow, CI signing, a public install).
 
 **Not supported yet:** Linux outside CI, Windows, languages other than Python, test runners other than pytest, more than one agent at a time. On anything outside the supported list OpenHarnX makes no claim of protection.
 
