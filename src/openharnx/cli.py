@@ -25,6 +25,7 @@ from openharnx.app import (
     new_contract,
     verify,
 )
+from openharnx.app.audit import audit_trail
 from openharnx.app.bug import bug_approve, bug_fix, bug_new, bug_show, describe_proposed
 from openharnx.app.trace import trace_approve, trace_check, trace_init
 from openharnx.doctor import run_checks
@@ -163,6 +164,12 @@ def _cmd_trace_approve(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_audit(args: argparse.Namespace) -> int:
+    for line in audit_trail(Path.cwd()):
+        print(line)
+    return EXIT_OK
+
+
 def _say(line: str) -> None:
     print(line, flush=True)
 
@@ -271,6 +278,9 @@ def build_parser() -> argparse.ArgumentParser:
     ver.add_argument("--sandbox", choices=["auto", "srt", "none"], default="auto")
     ver.add_argument("--json", action="store_true")
     ver.set_defaults(func=_cmd_verify)
+
+    aud = sub.add_parser("audit", help="who did what and touched what, from the evidence store")
+    aud.set_defaults(func=_cmd_audit)
 
     rep = sub.add_parser("report", help="show the latest report")
     rep.add_argument("--json", action="store_true")

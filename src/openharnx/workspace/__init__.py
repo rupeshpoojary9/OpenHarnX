@@ -126,6 +126,18 @@ def changed_paths(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
     return sorted(p for p in a.keys() | b.keys() if a.get(p) != b.get(p))
 
 
+def git_user(repo: Path) -> dict[str, str]:
+    """The person git would name as author here; self-declared, not proof of identity."""
+
+    def value(key: str) -> str:
+        try:
+            return _git(repo, "config", key).decode().strip() or "unknown"
+        except subprocess.CalledProcessError:
+            return "unknown"
+
+    return {"name": value("user.name"), "email": value("user.email")}
+
+
 def tree_digest(root: Path) -> str:
     """Digest of protected material (a file or a directory), independent of git."""
     if root.is_file():

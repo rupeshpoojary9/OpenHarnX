@@ -187,6 +187,11 @@ class Store:
         ).fetchall()
         return [self._record(r) for r in rows]
 
+    def history(self) -> list[Record]:
+        """Every record, in the order it was appended."""
+        rows = self.db.execute(self._SELECT + " ORDER BY e.seq").fetchall()
+        return [self._record(r) for r in rows]
+
     def check(self) -> list[str]:
         """Verify the hash chain, every revision body and every blob it references.
 

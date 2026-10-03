@@ -31,6 +31,7 @@ from openharnx.workspace import (
     NotARepository,
     build_manifest,
     changed_paths,
+    git_user,
     repo_root,
     root_commit,
     tree_digest,
@@ -99,9 +100,10 @@ def accept_contract(cwd: Path, contract_file: Path, sandbox: str = "auto") -> Re
     if errors:
         raise UsageError("contract is not valid:\n  " + "\n  ".join(errors))
 
-    _, pdir, store = _open(cwd)
+    root, pdir, store = _open(cwd)
     try:
         obligations = []
+        written: list[Path] = [contract_file.resolve()]  # the acceptance step's own files
         for ob in raw["obligations"]:
             ob = dict(ob)
             ob.setdefault("timeout_s", 300)
@@ -110,6 +112,7 @@ def accept_contract(cwd: Path, contract_file: Path, sandbox: str = "auto") -> Re
                 src = (contract_file.parent / ob["protected"]).resolve()
                 if not src.exists():
                     raise UsageError(f"protected material not found: {src}")
+                written.append(src)
                 tdig = tree_digest(src)
                 dest = pdir / "protected" / tdig.removeprefix("sha256:")[:16] / src.name
                 if not dest.exists():
@@ -132,6 +135,7 @@ def accept_contract(cwd: Path, contract_file: Path, sandbox: str = "auto") -> Re
         obligations.append(dict(WEAKENING_OBLIGATION))
         environment = _lock_environment(raw, pdir, root)
         baselines = _regression_baselines(obligations, raw, environment, pdir, root, sandbox)
+        accepted_tree = build_manifest(root)
         body = {
             "title": raw["title"],
             "python": raw.get("python", "unknown"),
@@ -142,7 +146,14 @@ def accept_contract(cwd: Path, contract_file: Path, sandbox: str = "auto") -> Re
             "documentation_obligations": ["assurance_report", "changelog_entry"],
             "obligations": obligations,
             **({"environment": environment} if environment else {}),
-            "weakening_baseline": weakening_snapshot(root, _files(build_manifest(root))),
+            "weakening_baseline": weakening_snapshot(root, _files(accepted_tree)),
+            "accepted_by": git_user(root),
+            "accepted_paths": sorted(
+                str(p.relative_to(root)) for p in written if p.is_relative_to(root)
+            ),
+            "accepted_manifest_blob": store.put_blob(
+                json.dumps(accepted_tree, sort_keys=True).encode()
+            ),
             **({"regression_baseline": baselines} if baselines else {}),
             "status": "accepted",
         }

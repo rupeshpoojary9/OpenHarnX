@@ -5,6 +5,7 @@ attempts. The owner makes one decision: whether the proposed rule is right.
 
 from __future__ import annotations
 
+import json
 import tempfile
 import tomllib
 import uuid
@@ -25,7 +26,7 @@ from openharnx.regression import junit_env, read_details
 from openharnx.sandbox import find_srt
 from openharnx.store import Record, Store
 from openharnx.verify import run_obligation
-from openharnx.workspace import build_manifest
+from openharnx.workspace import build_manifest, changed_paths, git_user
 
 INVESTIGATE = """You are investigating a bug report for this repository.
 Do not modify any file in the repository.
@@ -125,13 +126,30 @@ def _update(store: Store, bug: Record, **changes: Any) -> Record:
     return store.append("bug", {**bug.body, **changes}, now=now_utc(), entity_id=bug.entity_id)
 
 
-def _record_run(store: Store, bug_id: str, phase: str, attempt: int, run: AgentRun) -> None:
+def _manifest_blob(store: Store, manifest: dict[str, Any]) -> str:
+    return store.put_blob(json.dumps(manifest, sort_keys=True).encode())
+
+
+def _record_run(
+    store: Store,
+    bug_id: str,
+    phase: str,
+    attempt: int,
+    run: AgentRun,
+    before: dict[str, Any],
+    after: dict[str, Any],
+) -> None:
+    """One agent run: who ran, and the files it changed as OpenHarnX observed them."""
     store.append(
         "agent_run",
         {
             "bug": bug_id,
             "phase": phase,
             "attempt": attempt,
+            "agent": run.identity,
+            "changed_paths": changed_paths(before, after),
+            "before_manifest_blob": _manifest_blob(store, before),
+            "after_manifest_blob": _manifest_blob(store, after),
             "exit_code": run.exit_code,
             "cost_usd": run.cost_usd if run.cost_usd is not None else "unknown",
             "duration_ms": run.duration_ms,
@@ -175,9 +193,10 @@ def bug_new(
             on_event=progress,
         )
         progress(_finished(run))
-        _record_run(store, bug_id, "investigate", 1, run)
+        after = build_manifest(root)
+        _record_run(store, bug_id, "investigate", 1, run, before, after)
 
-        if build_manifest(root)["digest"] != before["digest"]:
+        if after["digest"] != before["digest"]:
             return _update(
                 store,
                 bug,
@@ -331,6 +350,7 @@ def bug_approve(cwd: Path, bug_id: str) -> Path:
             store,
             _get(store, bug_id),
             status="approved",
+            approved_by=git_user(root),
             contract_revision=accepted.revision_id,
             test_file=str(test_file.relative_to(root)),
         )
@@ -389,6 +409,7 @@ def bug_fix(
                 f" spent ${spent:.2f}, {_limits(command, srt)}"
             )
             run_dir = pdir / "runs" / uuid.uuid4().hex[:12]
+            before = build_manifest(root)
             run = launch(
                 command,
                 FIX.format(
@@ -408,7 +429,7 @@ def bug_fix(
                 on_event=progress,
             )
             progress(_finished(run))
-            _record_run(store, bug_id, "fix", attempt, run)
+            _record_run(store, bug_id, "fix", attempt, run, before, build_manifest(root))
         finally:
             store.close()
 

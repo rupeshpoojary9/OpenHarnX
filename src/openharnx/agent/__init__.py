@@ -19,7 +19,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +38,8 @@ class AgentAdapter:
     describe: Callable[[dict[str, Any], Path], list[str]]  # one event as progress lines
     cost: Callable[[bytes], float | None]
     temp_env: tuple[str, ...] = ()  # variables that move the agent's own temp directory
+    # Model, version and session the agent reports about itself, for the audit trail.
+    identify: Callable[[bytes], dict[str, str]] = lambda _: {}
 
 
 def _short(text: str, limit: int = 100) -> str:
@@ -102,6 +104,19 @@ def _claude_cost(output: bytes) -> float | None:
     return None
 
 
+def _claude_identify(output: bytes) -> dict[str, str]:
+    """From the stream's init event: model, Claude Code version and session."""
+    fields = {"model": "model", "version": "claude_code_version", "session": "session_id"}
+    for line in output.decode("utf-8", "replace").splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict) and event.get("subtype") == "init":
+            return {k: str(event[v]) for k, v in fields.items() if v in event}
+    return {}
+
+
 CLAUDE_CODE = AgentAdapter(
     name="claude-code",
     command=(
@@ -138,6 +153,7 @@ CLAUDE_CODE = AgentAdapter(
     cost=_claude_cost,
     # Its shell state goes under /tmp/claude-<uid>, not TMPDIR; the sandbox denies that.
     temp_env=("CLAUDE_CODE_TMPDIR",),
+    identify=_claude_identify,
 )
 
 DEFAULT_COMMAND = list(CLAUDE_CODE.command)
@@ -151,6 +167,7 @@ class AgentRun:
     cost_usd: float | None
     duration_ms: int
     protection: str
+    identity: dict[str, str] = field(default_factory=dict)
 
 
 def agent_profile(
@@ -234,7 +251,7 @@ def launch(
             cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
     except OSError as exc:
-        return AgentRun(None, str(exc).encode(), None, 0, protection)
+        return AgentRun(None, str(exc).encode(), None, 0, protection, _identity(adapter, argv, b""))
 
     stderr: list[bytes] = []
     reader = threading.Thread(
@@ -273,4 +290,10 @@ def launch(
     out = b"".join(stdout)
     ms = int((time.monotonic() - start) * 1000)
     code = None if timed_out.is_set() else proc.returncode
-    return AgentRun(code, out + b"".join(stderr), adapter.cost(out), ms, protection)
+    identity = _identity(adapter, argv, out)
+    return AgentRun(code, out + b"".join(stderr), adapter.cost(out), ms, protection, identity)
+
+
+def _identity(adapter: AgentAdapter, argv: list[str], output: bytes) -> dict[str, str]:
+    """Who ran: the adapter, the command actually started, and what the agent reports."""
+    return {"adapter": adapter.name, "command": Path(argv[0]).name, **adapter.identify(output)}
