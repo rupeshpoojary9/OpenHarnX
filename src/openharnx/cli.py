@@ -25,7 +25,7 @@ from openharnx.app import (
     new_contract,
     verify,
 )
-from openharnx.app.bug import bug_approve, bug_fix, bug_new
+from openharnx.app.bug import bug_approve, bug_fix, bug_new, bug_show, describe_proposed
 from openharnx.app.trace import trace_approve, trace_check, trace_init
 from openharnx.doctor import run_checks
 from openharnx.report import render_markdown
@@ -173,12 +173,28 @@ def _cmd_bug_new(args: argparse.Namespace) -> int:
     print(f"{body['id']}: {body['symptom']}")
     if proposal:
         print("\n" + proposal.strip() + "\n")
+    if "reproduction_tests" in body:
+        print("Proposed tests, locked as the oracle if you approve:")
+        for line in describe_proposed(body["reproduction_tests"]):
+            print(line)
+        print(f"Read them in full: ohx bug show {body['id']}\n")
     if body["status"] == "proposed":
         print("The investigation reproduces the bug: its tests fail on the current code.")
-        print(f"If the rule is right: ohx bug approve {body['id']}")
+        print(f"If the rule and the tests are right: ohx bug approve {body['id']}")
         return EXIT_OK
     print(f"Investigation rejected: {body.get('reason', body['status'])}")
     return EXIT_BLOCKED
+
+
+def _cmd_bug_show(args: argparse.Namespace) -> int:
+    body, proposal, tests = bug_show(Path.cwd(), args.bug)
+    print(f"{body['id']}: {body['symptom']} ({body['status']})")
+    if proposal:
+        print("\n" + proposal.strip())
+    if tests:
+        print(f"\nProposed tests ({body.get('test_file', 'not yet written to the repository')}):\n")
+        print(tests.rstrip())
+    return EXIT_OK
 
 
 def _cmd_bug_approve(args: argparse.Namespace) -> int:
@@ -266,6 +282,9 @@ def build_parser() -> argparse.ArgumentParser:
     bnew.add_argument("symptom", help="what is wrong, as a user would report it")
     bnew.add_argument("--sandbox", choices=["srt", "none"], default="srt")
     bnew.set_defaults(func=_cmd_bug_new)
+    bshow = bsub.add_parser("show", help="print the proposal and the proposed tests in full")
+    bshow.add_argument("bug")
+    bshow.set_defaults(func=_cmd_bug_show)
     bapp = bsub.add_parser("approve", help="accept the proposed rule and tests as the contract")
     bapp.add_argument("bug")
     bapp.set_defaults(func=_cmd_bug_approve)

@@ -21,6 +21,7 @@ from openharnx.app import (
     ohx_home,
     verify,
 )
+from openharnx.regression import junit_env, read_details
 from openharnx.sandbox import find_srt
 from openharnx.store import Record, Store
 from openharnx.verify import run_obligation
@@ -194,6 +195,7 @@ def bug_new(
         proposal = proposal_path.read_text()
 
         progress("checking that the proposed tests fail on the current code")
+        junit = run_dir / "tmp" / "junit-reproduce.xml"
         repro = run_obligation(
             {
                 "id": "reproduce",
@@ -213,11 +215,16 @@ def bug_new(
             srt=srt,
             deny_read=["~/.ssh", str(ohx_home() / "keys")],
             python=_python(root),
+            extra_env=junit_env(junit),
         )
+        details = read_details(junit)
         common = {
             "proposal_blob": store.put_blob(proposal.encode()),
             "test_blob": store.put_blob(test_path.read_bytes()),
             "reproduction": repro.outcome,
+            "reproduction_tests": None
+            if details is None
+            else {k: list(v) for k, v in details.items()},
         }
         if repro.outcome == "fail":
             return _update(store, bug, status="proposed", **common), proposal
@@ -228,6 +235,54 @@ def bug_new(
             else f"the proposed tests could not be run ({repro.outcome})"
         )
         return _update(store, bug, status="rejected", reason=reason, **common), proposal
+    finally:
+        store.close()
+
+
+# A failure for one of these is the test's own check failing; anything else may be a broken test.
+ASSERTION_LIKE = {"AssertionError", "Failed"}
+
+
+def describe_proposed(results: dict[str, list[str]] | None) -> list[str]:
+    """One line per proposed test: how it behaved on the current code (T87 item 2)."""
+    if results is None:
+        return ["  (per-test results not available; read the tests in full before approving)"]
+    groups: dict[str, list[tuple[str, str]]] = {}
+    for test_id, (outcome, reason) in results.items():
+        name = test_id.rsplit("::", 1)[-1].split("[", 1)[0]
+        groups.setdefault(name, []).append((outcome, reason))
+    lines = []
+    for name, cases in groups.items():
+        label = f"  {name}" + (f" ({len(cases)} cases)" if len(cases) > 1 else "")
+        passing = sum(1 for o, _ in cases if o == "pass")
+        odd = sorted({r for o, r in cases if o == "fail" and r not in ASSERTION_LIKE})
+        if passing == len(cases):
+            lines.append(f"{label}: passes on the current code, so it does not show the bug")
+        elif odd:
+            lines.append(
+                f"{label}: fails with {', '.join(odd)}, not a failed assertion;"
+                " check that it tests the rule"
+            )
+        elif passing:
+            lines.append(f"{label}: {passing} of {len(cases)} cases pass on the current code")
+        elif all(o == "skip" for o, _ in cases):
+            lines.append(f"{label}: skipped")
+        else:
+            lines.append(f"{label}: fails on the current code (AssertionError)")
+    return lines
+
+
+def bug_show(cwd: Path, bug_id: str) -> tuple[dict[str, Any], str, str]:
+    """The bug record, its proposal and its proposed tests, in full."""
+    _, _, store = _open(cwd)
+    try:
+        bug = _get(store, bug_id)
+
+        def text(key: str) -> str:
+            blob = bug.body.get(key)
+            return store.blob_path(blob).read_text(errors="replace") if blob else ""
+
+        return bug.body, text("proposal_blob"), text("test_blob")
     finally:
         store.close()
 

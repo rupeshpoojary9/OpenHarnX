@@ -12,6 +12,7 @@ suite that was already failing cannot be compared: unknown, never a pass.
 
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
@@ -25,25 +26,42 @@ def junit_env(path: Path) -> dict[str, str]:
     return {"PYTEST_ADDOPTS": f"--junitxml={path}"}
 
 
-def read_results(path: Path) -> dict[str, str] | None:
-    """Per-test outcome (pass, fail or skip) by test id; None when not available."""
+def read_details(path: Path) -> dict[str, tuple[str, str]] | None:
+    """Per-test outcome (pass, fail or skip) and failure reason by test id.
+
+    The reason is the exception name when the failure names one, AssertionError
+    for a failed assert; None when results are not available.
+    """
     try:
         if not path.is_file() or path.stat().st_size > MAX_JUNIT_BYTES:
             return None
         root = ET.parse(path).getroot()
     except (OSError, ET.ParseError):
         return None
-    results: dict[str, str] = {}
+    results: dict[str, tuple[str, str]] = {}
     for case in root.iter("testcase"):
         test_id = f"{case.get('classname', '')}::{case.get('name', '')}"
-        tags = {child.tag for child in case}
-        if tags & {"failure", "error"}:
-            results[test_id] = "fail"
-        elif "skipped" in tags:
-            results[test_id] = "skip"
+        failed = [c for c in case if c.tag in ("failure", "error")]
+        if failed:
+            results[test_id] = ("fail", _reason(failed[0].get("message", "")))
+        elif any(c.tag == "skipped" for c in case):
+            results[test_id] = ("skip", "")
         else:
-            results[test_id] = results.get(test_id, "pass")
+            results[test_id] = results.get(test_id, ("pass", ""))
     return results
+
+
+def _reason(message: str) -> str:
+    named = re.match(r"([A-Za-z_][\w.]*):", message)
+    if named:
+        return named.group(1).rsplit(".", 1)[-1]
+    return "AssertionError" if message.startswith("assert") else "failure"
+
+
+def read_results(path: Path) -> dict[str, str] | None:
+    """Per-test outcome (pass, fail or skip) by test id; None when not available."""
+    details = read_details(path)
+    return None if details is None else {t: o for t, (o, _) in details.items()}
 
 
 def baseline(outcome: str, tests: dict[str, str] | None) -> dict[str, Any]:
