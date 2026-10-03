@@ -17,3 +17,27 @@ Both examples run the same block of commands, between `# ohx-gate commands` mark
 - **No secrets in the job.** The gate makes no model calls and needs no credentials; leave signing keys out (`OHX_SIGNING_KEY=none`).
 - **Untrusted changes run on throwaway runners.** A merge request from a fork, or a pull request from someone outside the team, executes their code (tests, build steps) inside the sandbox. Use ephemeral runners, not a persistent shared agent. GitLab runs fork pipelines in the fork's project unless a maintainer starts one in the parent; Jenkins's GitHub Branch Source can take the Jenkinsfile from the target branch for untrusted contributors ("Trust" setting), which also stops a change from editing the pipeline that judges it.
 - **Make the job a required check** (GitLab: "Pipelines must succeed"; Jenkins: a required status on the pull request) so a blocked change cannot be merged.
+
+## GitHub Actions in your own project
+
+Use the action pinned to a commit. Pinning the action pins the gate: it installs itself from its own source, never from your code. Give the job a read-only token.
+
+```yaml
+name: OpenHarnX gate
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@<commit SHA>
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: rupeshpoojary9/OpenHarnX@<commit SHA of the OpenHarnX version you trust>
+```
+
+The action prepares the sandbox (bubblewrap, socat, ripgrep, srt 0.0.77, and Ubuntu 24.04's user-namespace setting), fetches the base if needed, runs `ohx gate --sandbox srt`, writes the report to the job summary, and sets the outputs `readiness` and `report`. Upload `${{ steps.<id>.outputs.report }}` with `actions/upload-artifact` to keep it. OpenHarnX's own `.github/workflows/gate.yml` uses the same action from the base checkout and adds a separate signing job.

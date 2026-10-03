@@ -39,6 +39,8 @@ def test_every_action_is_pinned_to_a_commit() -> None:
     uses = re.findall(r"uses:\s*(\S+)", _text())
     assert uses, "no actions found"
     for ref in uses:
+        if ref == "./trusted":  # the gate's own action, from the base checkout
+            continue
         assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", ref), ref
 
 
@@ -57,8 +59,8 @@ def test_the_job_that_runs_pull_request_code_has_no_write_permission() -> None:
 def test_the_gate_is_installed_from_the_base_and_runs_sandboxed() -> None:
     gate = _job("gate")
     assert "ref: ${{ github.event.pull_request.base.sha }}" in gate
-    assert "install -q uv ./trusted" in gate
-    assert "--sandbox srt" in gate
+    assert "uses: ./trusted" in gate  # the action from the base installs itself
+    assert "sandbox: srt" in gate
     assert gate.count("persist-credentials: false") == 2
 
 

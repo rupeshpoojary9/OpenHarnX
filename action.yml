@@ -1,0 +1,74 @@
+# OpenHarnX gate as a GitHub Action (T79).
+#
+# Use it pinned to a commit: `uses: rupeshpoojary9/OpenHarnX@<commit SHA>`. The
+# gate is installed from this action's own source, so the pin is the gate's
+# version; the project's code is judged, never installed. Inputs reach scripts
+# only through environment variables. Needs a Linux runner (ubuntu-24.04 tested).
+name: OpenHarnX gate
+description: Judge a pull request against its base commit with locked tests, in a sandbox, with no model calls.
+
+inputs:
+  base:
+    description: The base commit or ref (the trusted side). Defaults to the pull request's base commit.
+    default: ${{ github.event.pull_request.base.sha }}
+  working-directory:
+    description: The checkout to judge.
+    default: "."
+  sandbox:
+    description: srt (default) or none. Without the sandbox the report says checkers ran without isolation.
+    default: srt
+  out:
+    description: Folder for report.json and report.md. Defaults to ohx-gate in the runner's temp folder.
+    default: ""
+
+outputs:
+  readiness:
+    description: ready, blocked, unknown or invalid.
+    value: ${{ steps.gate.outputs.readiness }}
+  report:
+    description: The folder with report.json and report.md.
+    value: ${{ steps.gate.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - name: Prepare the sandbox
+      shell: bash
+      run: |
+        if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+        fi
+        if ! command -v bwrap >/dev/null || ! command -v socat >/dev/null || ! command -v rg >/dev/null; then
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap socat ripgrep
+        fi
+        command -v srt >/dev/null || npm install -g @anthropic-ai/sandbox-runtime@0.0.77
+
+    - name: Install the gate from this action's own source
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        python3 -m venv "$RUNNER_TEMP/ohx"
+        "$RUNNER_TEMP/ohx/bin/pip" install -q uv "$ACTION_PATH"
+
+    - name: Run the gate
+      id: gate
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        OHX_BASE: ${{ inputs.base }}
+        OHX_SANDBOX: ${{ inputs.sandbox }}
+        OHX_OUT: ${{ inputs.out || format('{0}/ohx-gate', runner.temp) }}
+        OHX_SIGNING_KEY: none
+      run: |
+        base="$OHX_BASE"
+        git rev-parse --verify -q "$base^{commit}" >/dev/null || { git fetch --no-tags origin "$base"; base=FETCH_HEAD; }
+        set +e
+        "$RUNNER_TEMP/ohx/bin/ohx" gate --base "$base" --sandbox "$OHX_SANDBOX" --out "$OHX_OUT"
+        code=$?
+        set -e
+        readiness=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["readiness"])' "$OHX_OUT/report.json" 2>/dev/null || echo unknown)
+        echo "report=$OHX_OUT" >> "$GITHUB_OUTPUT"
+        echo "readiness=$readiness" >> "$GITHUB_OUTPUT"
+        exit "$code"
