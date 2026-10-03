@@ -33,9 +33,30 @@ from openharnx.app import (
     verify,
 )
 from openharnx.report import render_markdown
+from openharnx.weakening import JS_SOURCE, is_test_file
 from openharnx.workspace import NotARepository, repo_root
 
 PYTEST = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+# Whole-suite commands for TypeScript and JavaScript (T82), with per-test results.
+JS_SUITES: dict[str, list[str]] = {
+    "vitest": [
+        "node_modules/.bin/vitest",
+        "run",
+        "--reporter=default",
+        "--reporter=junit",
+        "--outputFile.junit={junit}",
+    ],
+    "jest": ["node_modules/.bin/jest", "--ci"],
+    "node": [
+        "node",
+        "--test",
+        "--test-reporter=spec",
+        "--test-reporter-destination=stdout",
+        "--test-reporter=junit",
+        "--test-reporter-destination={junit}",
+        "**/*.{test,spec}.{ts,mts,cts,js,mjs,cjs}",
+    ],
+}
 SUMMARY_ENV = "GITHUB_STEP_SUMMARY"
 
 
@@ -78,14 +99,47 @@ def _gate_contract(base: Path, base_sha: str, head_sha: str) -> dict[str, Any]:
                 "command": [*PYTEST, "{protected}"],
             }
         )
+    js_suite = _js_suite(base, defaults)
+    if js_suite is not None:
+        locked = _lock_js_tests(base, base.parent / "locked-js")
+        if locked:
+            obligations.append(
+                {
+                    "id": "locked-js-tests" if obligations else "locked-tests",
+                    "kind": "regression",
+                    "mandatory": False,
+                    "protected": str(locked),
+                    # The base's test files laid over a copy of the tree in place of the
+                    # pull request's, wherever they are (T82).
+                    "protected_at": ".",
+                    "command": js_suite,
+                }
+            )
     if "obligations" in defaults:
         obligations += [dict(o) for o in defaults["obligations"]]
-    elif (base / "tests").is_dir():
-        obligations.append(
-            {"id": "tests", "kind": "regression", "mandatory": False, "command": [*PYTEST, "tests"]}
-        )
+    else:
+        if (base / "tests").is_dir():
+            obligations.append(
+                {
+                    "id": "tests",
+                    "kind": "regression",
+                    "mandatory": False,
+                    "command": [*PYTEST, "tests"],
+                }
+            )
+        if js_suite is not None:
+            obligations.append(
+                {
+                    "id": "js-tests" if (base / "tests").is_dir() else "tests",
+                    "kind": "regression",
+                    "mandatory": False,
+                    "command": js_suite,
+                }
+            )
     if not obligations:
-        raise UsageError("the base commit has no tests/ folder and no obligations in ohx.toml")
+        raise UsageError(
+            "the base commit has no tests (tests/ or *.test.* files) and no obligations in ohx.toml"
+        )
     raw: dict[str, Any] = {
         "title": f"Gate: {head_sha[:12]} against base {base_sha[:12]}",
         "mode": "gate",
@@ -96,6 +150,40 @@ def _gate_contract(base: Path, base_sha: str, head_sha: str) -> dict[str, Any]:
             raw[key] = defaults[key]
     raw["obligations"] = obligations
     return raw
+
+
+def _js_suite(base: Path, defaults: dict[str, Any]) -> list[str] | None:
+    """The base's TypeScript or JavaScript runner: `js_runner` in ohx.toml, else Vitest or
+    Jest when package.json lists it, else Node's own; None when the base has no package.json."""
+    package_file = base / "package.json"
+    if not package_file.is_file():
+        return None
+    runner = defaults.get("js_runner")
+    if runner is None:
+        try:
+            package = json.loads(package_file.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            package = {}
+        listed: set[str] = set()
+        for key in ("dependencies", "devDependencies"):
+            if isinstance(package, dict) and isinstance(package.get(key), dict):
+                listed |= set(package[key])
+        runner = next((r for r in ("vitest", "jest") if r in listed), "node")
+    if runner not in JS_SUITES:
+        raise UsageError(f"js_runner in the base's ohx.toml must be one of {sorted(JS_SUITES)}")
+    return list(JS_SUITES[runner])
+
+
+def _lock_js_tests(base: Path, dest: Path) -> Path | None:
+    """Copy the base's TypeScript and JavaScript test files, at their paths, into `dest`."""
+    tracked = _git(base, "ls-files", "-z").split("\0")
+    files = [f for f in tracked if f and f.endswith(JS_SOURCE) and is_test_file(f)]
+    if not files:
+        return None
+    for rel in files:
+        (dest / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(base / rel, dest / rel)
+    return dest
 
 
 def _write_contract(raw: dict[str, Any], path: Path) -> None:

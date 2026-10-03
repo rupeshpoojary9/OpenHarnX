@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from openharnx.environment import LOCKFILE, EnvironmentUnavailable, ensure
+from openharnx.environment import LOCKFILES, EnvironmentUnavailable, ensure, ensure_npm
 from openharnx.kernel.canonical import digest
 from openharnx.kernel.contract import validate_contract
 from openharnx.kernel.gate import GateEvaluation, Obligation, Observation, evaluate_gate
@@ -38,7 +38,7 @@ from openharnx.signing import (
 from openharnx.signing import message as signed_message
 from openharnx.store import Record, Store
 from openharnx.verify import run_obligation
-from openharnx.weakening import JS_SOURCE
+from openharnx.weakening import JS_SOURCE, is_test_file
 from openharnx.weakening import compare as compare_weakening
 from openharnx.weakening import snapshot as weakening_snapshot
 from openharnx.workspace import (
@@ -386,7 +386,7 @@ def _checker_python(
     is a bare copy without the candidate's virtual environment."""
     where = python_root or root
     python = str(where / body_python) if body_python != "unknown" else sys.executable
-    if environment:
+    if environment and environment["kind"] == "uv":
         try:
             python = str(_checker_environment(environment, pdir, root))
         except _EnvironmentChanged as exc:
@@ -403,17 +403,23 @@ def _regression_run(
     srt: Path | None,
     python: str,
     protected: Path | None = None,
+    modules: Path | None = None,
 ) -> tuple[str, dict[str, str] | None]:
     junit = run_dir / "tmp" / f"junit-{ob['id']}.xml"
     if protected is not None and ob.get("protected_at"):
         at = ob["protected_at"]
         try:
             root = _tree_view(
-                build_manifest(root), root, protected, at, run_dir / f"tree-{ob['id']}"
+                build_manifest(root), root, protected, at, run_dir / f"tree-{ob['id']}", modules
             )
         except _TreeChanged:
             return "invalid", None
         protected = root / at
+    elif modules is not None:
+        try:
+            root = _modules_view(build_manifest(root), root, modules, run_dir / f"tree-{ob['id']}")
+        except _TreeChanged:
+            return "invalid", None
     r = run_obligation(
         ob,
         candidate=root,
@@ -444,6 +450,8 @@ def _regression_baselines(
     python, env_outcome, _ = _checker_python(
         raw.get("python", "unknown"), environment, pdir, root, python_root
     )
+    modules, npm_outcome, _ = _protected_modules(environment, pdir, root)
+    env_outcome = env_outcome or npm_outcome
     run_dir = pdir / "runs" / f"accept-{uuid.uuid4().hex[:12]}"
     baselines: dict[str, Any] = {}
     for ob in advisory:
@@ -451,7 +459,7 @@ def _regression_baselines(
             baselines[ob["id"]] = regression_baseline(env_outcome, None)
         else:
             protected = pdir / ob["protected_store_path"] if "protected_store_path" in ob else None
-            ran = _regression_run(ob, root, run_dir, srt, python, protected)
+            ran = _regression_run(ob, root, run_dir, srt, python, protected, modules)
             baselines[ob["id"]] = regression_baseline(*ran)
         obligations.append(_no_new_failures(ob["id"], len(advisory) == 1))
     return baselines
@@ -461,11 +469,19 @@ class _TreeChanged(Exception):
     """A file changed while the tree was being copied for a locked run."""
 
 
+# `protected_at = "."`: the locked material is a folder of test files at their own paths,
+# laid over the tree in place of the candidate's TypeScript and JavaScript test files (T82).
+OVERLAY = "."
+
+
 def _copy_tree(manifest: dict[str, Any], root: Path, dest: Path, skip: str | None = None) -> None:
     """Copy the tree as `manifest` records it, checking each file against its digest."""
     for e in manifest["entries"]:
         rel = e["path"]
-        if skip is not None and (rel == skip or rel.startswith(skip + "/")):
+        if skip == OVERLAY:
+            if is_test_file(rel) and rel.endswith(JS_SOURCE):
+                continue
+        elif skip is not None and (rel == skip or rel.startswith(skip + "/")):
             continue
         if e["type"] not in ("file", "symlink"):
             continue
@@ -479,15 +495,29 @@ def _copy_tree(manifest: dict[str, Any], root: Path, dest: Path, skip: str | Non
             raise _TreeChanged(f"{rel} changed while the tree was being copied")
 
 
-def _link_node_modules(root: Path, dest: Path) -> None:
-    """Git ignores node_modules, so the copy lacks it; tests there resolve packages from
-    the candidate's own (named in the report's limitations)."""
-    modules = root / "node_modules"
+def _link_node_modules(modules: Path, dest: Path) -> None:
+    """Git ignores node_modules, so a copy of the tree lacks it. Link the protected one
+    (`environment = "npm"`), else the candidate's own (named in the limitations)."""
     if modules.is_dir() and not (dest / "node_modules").exists():
         (dest / "node_modules").symlink_to(modules.resolve())
 
 
-def _tree_view(manifest: dict[str, Any], root: Path, protected: Path, at: str, dest: Path) -> Path:
+def _modules_view(manifest: dict[str, Any], root: Path, modules: Path, dest: Path) -> Path:
+    """A copy of the tree with the protected node_modules, for checks that run on the tree."""
+    if not dest.exists():
+        _copy_tree(manifest, root, dest)
+        _link_node_modules(modules, dest)
+    return dest
+
+
+def _tree_view(
+    manifest: dict[str, Any],
+    root: Path,
+    protected: Path,
+    at: str,
+    dest: Path,
+    modules: Path | None = None,
+) -> Path:
     """A copy of the tree as `manifest` records it, with `at` replaced by the locked copy.
 
     Locked tests then run where they would run in the repository, so tests that find
@@ -495,8 +525,12 @@ def _tree_view(manifest: dict[str, Any], root: Path, protected: Path, at: str, d
     against its digest: the copy is the judged candidate, or the run is invalid.
     """
     _copy_tree(manifest, root, dest, skip=at)
-    _link_node_modules(root, dest)
-    if protected.is_dir():
+    _link_node_modules(modules or root / "node_modules", dest)
+    if at == OVERLAY:
+        shutil.copytree(
+            protected, dest, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__")
+        )
+    elif protected.is_dir():
         shutil.copytree(protected, dest / at, ignore=shutil.ignore_patterns("__pycache__"))
     else:
         (dest / at).parent.mkdir(parents=True, exist_ok=True)
@@ -513,35 +547,70 @@ class _EnvironmentChanged(Exception):
 
 
 def _lock_environment(raw: dict[str, Any], pdir: Path, root: Path) -> dict[str, Any] | None:
-    """At acceptance, lock `uv.lock` like a protected test (T77 item 10)."""
+    """At acceptance, lock `uv.lock` (T77 item 10) or `package-lock.json` with its
+    `package.json` (T82) like a protected test."""
     if raw.get("environment") is None:
         return None
-    lockfile = root / LOCKFILE
+    kind = raw["environment"]
+    name = LOCKFILES[kind]
+    lockfile = root / name
     if not lockfile.is_file():
-        raise UsageError(f'environment = "uv" needs {LOCKFILE} in the repository root')
+        raise UsageError(f'environment = "{kind}" needs {name} in the repository root')
     tdig = tree_digest(lockfile)
-    dest = pdir / "protected" / tdig.removeprefix("sha256:")[:16] / LOCKFILE
+    extra: dict[str, Any] = {}
+    folder = tdig.removeprefix("sha256:")[:16]
+    if kind == "npm":
+        package = root / "package.json"
+        if not package.is_file():
+            raise UsageError('environment = "npm" needs package.json in the repository root')
+        extra["package_digest"] = pdig = tree_digest(package)
+        folder = digest({"lock": tdig, "package": pdig}).removeprefix("sha256:")[:16]
+    dest = pdir / "protected" / folder / name
     if not dest.exists():
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(lockfile, dest)
+        if kind == "npm":
+            shutil.copy2(root / "package.json", dest.parent / "package.json")
     return {
-        "kind": raw["environment"],
+        "kind": kind,
         "lock_digest": tdig,
         "lock_store_path": str(dest.relative_to(pdir)),
+        **extra,
     }
 
 
 def _checker_environment(environment: dict[str, Any], pdir: Path, root: Path) -> Path:
-    """The protected environment's interpreter; nothing from the candidate's `.venv`."""
+    """The protected environment: the interpreter built from `uv.lock`, or the node_modules
+    built from `package-lock.json`; nothing from the candidate's `.venv` or node_modules."""
+    name = LOCKFILES[environment["kind"]]
     copy = pdir / environment["lock_store_path"]
     if not copy.is_file() or tree_digest(copy) != environment["lock_digest"]:
-        raise _EnvironmentChanged(f"the accepted copy of {LOCKFILE} changed in the store")
-    lockfile = root / LOCKFILE
+        raise _EnvironmentChanged(f"the accepted copy of {name} changed in the store")
+    lockfile = root / name
     if not lockfile.is_file() or tree_digest(lockfile) != environment["lock_digest"]:
         raise _EnvironmentChanged(
-            f"{LOCKFILE} changed since contract acceptance; accept a contract revision"
+            f"{name} changed since contract acceptance; accept a contract revision"
         )
+    if environment["kind"] == "npm":
+        package = copy.parent / "package.json"
+        if not package.is_file() or tree_digest(package) != environment.get("package_digest"):
+            raise _EnvironmentChanged("the accepted copy of package.json changed in the store")
+        return ensure_npm(pdir / "envs", copy, package)
     return ensure(pdir / "envs", copy, root).python
+
+
+def _protected_modules(
+    environment: dict[str, Any] | None, pdir: Path, root: Path
+) -> tuple[Path | None, str, str]:
+    """node_modules from the accepted lockfile, and an outcome and note when unusable."""
+    if not environment or environment["kind"] != "npm":
+        return None, "", ""
+    try:
+        return _checker_environment(environment, pdir, root), "", ""
+    except _EnvironmentChanged as exc:
+        return None, "invalid", str(exc)
+    except EnvironmentUnavailable as exc:
+        return None, "unavailable", f"checker environment unavailable: {exc}"
 
 
 def _gate_to_dict(gate: GateEvaluation) -> dict[str, Any]:
@@ -592,6 +661,9 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
         python, env_outcome, env_note = _checker_python(
             contract.body.get("python", "unknown"), environment, pdir, root
         )
+        modules, npm_outcome, npm_note = _protected_modules(environment, pdir, root)
+        if npm_note:
+            env_outcome, env_note = npm_outcome, npm_note
         baselines: dict[str, Any] = contract.body.get("regression_baseline", {})
         regression_runs: dict[str, tuple[str, dict[str, str] | None]] = {}
 
@@ -639,11 +711,16 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                     at = ob["protected_at"]
                     try:
                         where = _tree_view(
-                            before, root, protected, at, run_dir / f"tree-{ob['id']}"
+                            before, root, protected, at, run_dir / f"tree-{ob['id']}", modules
                         )
                     except _TreeChanged as exc:
                         where, note = root, str(exc)
                     protected = where / at
+                elif modules is not None:  # every check sees the protected node_modules
+                    try:
+                        where = _modules_view(before, root, modules, run_dir / "tree")
+                    except _TreeChanged as exc:
+                        where, note = root, str(exc)
                 if note:
                     outcome, exit_code, out, ms, argv = "invalid", None, b"", 0, ob["command"]
                     raw_obs.append(
@@ -809,7 +886,7 @@ def _mutation_check(
             _copy_tree(manifest, root, tree)
         except _TreeChanged as exc:
             return done("invalid", str(exc))
-        _link_node_modules(root, tree)
+        _link_node_modules(root / "node_modules", tree)
         for ob in acceptance:  # locked tests that run at their own path
             if ob.get("protected_at") and "protected_store_path" in ob:
                 (tree / ob["protected_at"]).parent.mkdir(parents=True, exist_ok=True)
@@ -916,6 +993,8 @@ def _node_modules_limitations(body: dict[str, Any], root: Path) -> list[str]:
     )
     if not uses_node or not (root / "node_modules").is_dir():
         return []
+    if (body.get("environment") or {}).get("kind") == "npm":
+        return []  # checks used the node_modules built from the accepted lockfile
     return [
         "JavaScript checkers resolved packages from node_modules in the candidate, which is"
         " git-ignored and outside the candidate identity, so changes to it are not detected"

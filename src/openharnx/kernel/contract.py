@@ -10,7 +10,7 @@ from typing import Any
 # from a new acceptance test, so it is the one mode that does not need one.
 MODES = frozenset({"bugfix", "task", "gate"})
 KINDS = frozenset({"acceptance", "regression", "check"})
-ENVIRONMENTS = frozenset({"uv"})
+ENVIRONMENTS = frozenset({"uv", "npm"})
 
 
 def _nonempty_str(value: Any) -> bool:

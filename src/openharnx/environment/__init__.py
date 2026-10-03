@@ -20,6 +20,9 @@ from pathlib import Path
 
 UV_ENV = "OHX_UV"
 LOCKFILE = "uv.lock"
+NPM_ENV = "OHX_NPM"
+NPM_LOCKFILE = "package-lock.json"
+LOCKFILES = {"uv": LOCKFILE, "npm": NPM_LOCKFILE}
 _COMPLETE = ".ohx-complete"
 
 
@@ -101,3 +104,44 @@ def _read(path: Path) -> bytes:
         return path.read_bytes()
     except FileNotFoundError:
         return b""
+
+
+def find_npm() -> Path | None:
+    configured = os.environ.get(NPM_ENV)
+    if configured:
+        return Path(configured)
+    found = shutil.which("npm")
+    return Path(found) if found else None
+
+
+def ensure_npm(envs: Path, lockfile: Path, package: Path) -> Path:
+    """Build, or reuse, node_modules for an accepted package-lock.json and package.json (T82).
+
+    `npm ci --ignore-scripts`: exactly the locked packages, and no install script runs, so
+    nothing a pull request adds to its dependencies runs outside the sandbox."""
+    key = hashlib.sha256()
+    for part in (lockfile.read_bytes(), _read(package)):
+        key.update(hashlib.sha256(part).digest())
+    root = envs / f"npm-{key.hexdigest()[:16]}"
+    modules = root / "project" / "node_modules"
+    if (root / _COMPLETE).exists() and modules.is_dir():
+        return modules
+    npm = find_npm()
+    if npm is None:
+        raise EnvironmentUnavailable("npm not found (set OHX_NPM)")
+    shutil.rmtree(root, ignore_errors=True)
+    project = root / "project"
+    project.mkdir(parents=True)
+    shutil.copyfile(lockfile, project / NPM_LOCKFILE)
+    if package.exists():
+        shutil.copyfile(package, project / "package.json")
+    cmd = [str(npm), "ci", "--ignore-scripts", "--no-audit", "--no-fund"]
+    try:
+        proc = subprocess.run(cmd, cwd=project, capture_output=True, timeout=900)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise EnvironmentUnavailable(f"npm ci could not run: {exc}") from exc
+    if proc.returncode != 0 or not modules.is_dir():
+        out = (proc.stdout + proc.stderr).decode(errors="replace").strip()[-2000:]
+        raise EnvironmentUnavailable(f"npm ci failed ({proc.returncode}): {out}")
+    (root / _COMPLETE).write_text("ok\n")
+    return modules
