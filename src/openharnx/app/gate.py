@@ -33,6 +33,7 @@ from openharnx.app import (
     verify,
 )
 from openharnx.report import render_markdown
+from openharnx.store import Record
 from openharnx.weakening import JS_SOURCE, is_test_file
 from openharnx.workspace import NotARepository, repo_root
 
@@ -77,8 +78,17 @@ def _base_copy(root: Path, base_sha: str, dest: Path) -> None:
     _git(dest, "-c", "advice.detachedHead=false", "checkout", "--quiet", "--detach", base_sha)
 
 
-def _gate_contract(base: Path, base_sha: str, head_sha: str) -> dict[str, Any]:
-    """The contract the base implies: its tests locked, its own checks, its policy."""
+def _gate_contract(
+    base: Path,
+    base_sha: str,
+    head_sha: str,
+    scratch: Path | None = None,
+    working_tree: bool = False,
+) -> dict[str, Any]:
+    """The contract the base implies: its tests locked, its own checks, its policy.
+
+    With `working_tree`, the base is the working tree itself (`ohx init --lock-tests`, T80);
+    locked copies then go to `scratch`, never beside the repository."""
     defaults: dict[str, Any] = {}
     if (base / "ohx.toml").is_file():
         try:
@@ -106,7 +116,8 @@ def _gate_contract(base: Path, base_sha: str, head_sha: str) -> dict[str, Any]:
         for lang, suite in (("js", _js_suite(base, defaults)), ("go", _go_suite(base)))
         if suite is not None
     }
-    locked = _lock_overlay_tests(base, base.parent / "locked-overlay") if suites else None
+    scratch = scratch or base.parent
+    locked = _lock_overlay_tests(base, scratch / "locked-overlay") if suites else None
     for lang, suite in suites.items():
         if locked is None:
             break
@@ -143,14 +154,21 @@ def _gate_contract(base: Path, base_sha: str, head_sha: str) -> dict[str, Any]:
                 }
             )
     if not obligations:
+        where = "this repository has" if working_tree else "the base commit has"
         raise UsageError(
-            "the base commit has no tests (tests/ or *.test.* files) and no obligations in ohx.toml"
+            f"{where} no tests (tests/ or *.test.* files) and no obligations in ohx.toml"
         )
     raw: dict[str, Any] = {
         "title": f"Gate: {head_sha[:12]} against base {base_sha[:12]}",
         "mode": "gate",
         "change_summary": f"Pull request head {head_sha[:12]} judged against base {base_sha[:12]}",
     }
+    if working_tree:
+        raw = {
+            "title": f"Locked suite at {head_sha[:12]}",
+            "mode": "suite",
+            "change_summary": f"The test suite of the working tree at {head_sha[:12]}, locked",
+        }
     for key in ("python", "environment"):
         if key in defaults:
             raw[key] = defaults[key]
@@ -212,6 +230,25 @@ def _write_contract(raw: dict[str, Any], path: Path) -> None:
     for ob in raw["obligations"]:
         lines += ["", "[[obligations]]", *(f"{k} = {_toml_value(v)}" for k, v in ob.items())]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def lock_tests(cwd: Path, sandbox: str = "auto") -> tuple[Record, dict[str, Any]]:
+    """`ohx init --lock-tests`: the working tree's own test suite becomes the contract."""
+    try:
+        root = repo_root(cwd)
+    except NotARepository as exc:
+        raise UsageError(f"not inside a git repository: {cwd}") from exc
+    head = _git(root, "rev-parse", "--verify", "HEAD^{commit}")
+    work = Path(tempfile.mkdtemp(prefix="ohx-lock-"))
+    try:
+        raw = _gate_contract(root, head, head, scratch=work, working_tree=True)
+        contract_file = work / "locked-suite.toml"
+        _write_contract(raw, contract_file)
+        init_project(root)
+        record = accept_contract(root, contract_file, sandbox=sandbox)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    return record, raw
 
 
 def gate(

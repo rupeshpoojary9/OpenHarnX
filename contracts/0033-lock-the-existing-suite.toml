@@ -1,0 +1,43 @@
+title = "Lock the existing suite"
+mode = "task"
+change_summary = "ohx init --lock-tests makes the project's existing test suite the contract with no contract file to write: its tests locked wherever they are, every passing test must keep passing, the weakening check on; locking again accepts a deliberate test change."
+python = ".venv/bin/python"
+environment = "uv"
+
+[[obligations]]
+id = "acceptance-test_lock_tests"
+kind = "acceptance"
+mandatory = true
+protected = "../tests/test_lock_tests.py"
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "{protected}"]
+
+[[obligations]]
+id = "format"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "format", "--check", "--no-cache", "."]
+
+[[obligations]]
+id = "lint"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "check", "--no-cache", "."]
+
+[[obligations]]
+id = "types"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "mypy", "--cache-dir", "{tmp}/mypy"]
+
+[[obligations]]
+id = "layers"
+kind = "check"
+mandatory = true
+command = ["{bindir}/lint-imports", "--no-cache"]
+
+[[obligations]]
+id = "tests"
+kind = "regression"
+mandatory = true
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+timeout_s = 600

@@ -28,7 +28,7 @@ from openharnx.app import (
 )
 from openharnx.app.audit import audit_trail
 from openharnx.app.bug import bug_approve, bug_fix, bug_new, bug_show, describe_proposed
-from openharnx.app.gate import gate
+from openharnx.app.gate import gate, lock_tests
 from openharnx.app.trace import trace_approve, trace_check, trace_init
 from openharnx.doctor import run_checks
 from openharnx.report import render_markdown
@@ -51,10 +51,17 @@ def _cmd_doctor(_: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def _cmd_init(_: argparse.Namespace) -> int:
+def _cmd_init(args: argparse.Namespace) -> int:
     pdir, record = init_project(Path.cwd())
     print(f"project {record.entity_id}")
     print(f"store   {pdir}")
+    if args.lock_tests:
+        accepted, raw = lock_tests(Path.cwd(), sandbox=args.sandbox)
+        print(f"locked  the existing tests as {accepted.revision_id}:")
+        for ob in accepted.body["obligations"]:
+            mandatory = "mandatory" if ob["mandatory"] else "advisory"
+            print(f"  {ob['id']:<28} {mandatory}")
+        print("run `ohx verify` after any change; lock again to accept a deliberate test change")
     return EXIT_OK
 
 
@@ -260,6 +267,17 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.set_defaults(func=_cmd_doctor)
 
     init = sub.add_parser("init", help="create the OpenHarnX store for this repository")
+    init.add_argument(
+        "--lock-tests",
+        action="store_true",
+        help="make the existing test suite the contract (no contract file to write)",
+    )
+    init.add_argument(
+        "--sandbox",
+        choices=["auto", "srt", "none"],
+        default="auto",
+        help="where the suite's baseline runs (with --lock-tests)",
+    )
     init.set_defaults(func=_cmd_init)
 
     contract = sub.add_parser("contract", help="work contracts")
