@@ -150,7 +150,9 @@ def bug_new(
     try:
         bug_id = f"BUG-{len(_bugs(store)) + 1:03d}"
         bug = store.append(
-            "bug", {"id": bug_id, "symptom": symptom, "status": "investigating"}, now=now_utc()
+            "bug",
+            {"id": bug_id, "symptom": symptom, "status": "investigating", "sandbox": sandbox},
+            now=now_utc(),
         )
         run_dir = pdir / "runs" / uuid.uuid4().hex[:12]
         # The agent may write only here, outside the repository and the store.
@@ -264,6 +266,7 @@ def bug_approve(cwd: Path, bug_id: str) -> Path:
         mode="bugfix",
         acceptance=[test_file],
         accept=True,
+        sandbox=bug.body.get("sandbox", "auto"),  # the baseline runs where the investigation ran
     )
     _, _, store = _open(cwd)
     try:

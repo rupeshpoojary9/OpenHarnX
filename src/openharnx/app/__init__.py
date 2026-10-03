@@ -18,6 +18,9 @@ from openharnx.environment import LOCKFILE, EnvironmentUnavailable, ensure
 from openharnx.kernel.canonical import digest
 from openharnx.kernel.contract import validate_contract
 from openharnx.kernel.gate import GateEvaluation, Obligation, Observation, evaluate_gate
+from openharnx.regression import baseline as regression_baseline
+from openharnx.regression import compare as compare_regression
+from openharnx.regression import junit_env, read_results
 from openharnx.report import READINESS, render_markdown
 from openharnx.sandbox import find_srt
 from openharnx.store import Record, Store
@@ -87,7 +90,7 @@ def init_project(cwd: Path) -> tuple[Path, Record]:
     return pdir, record
 
 
-def accept_contract(cwd: Path, contract_file: Path) -> Record:
+def accept_contract(cwd: Path, contract_file: Path, sandbox: str = "auto") -> Record:
     try:
         raw = tomllib.loads(contract_file.read_text(encoding="utf-8"))  # TOML is UTF-8
     except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
@@ -121,10 +124,14 @@ def accept_contract(cwd: Path, contract_file: Path) -> Record:
                 del ob["protected"]
             obligations.append(ob)
         root = repo_root(cwd)
-        if any(ob.get("builtin") or ob["id"] == WEAKENING for ob in obligations):
-            raise UsageError(f"obligation id {WEAKENING!r} and `builtin` are reserved")
+        if any(ob.get("builtin") or _reserved(ob["id"]) for ob in obligations):
+            raise UsageError(
+                f"obligation ids {WEAKENING!r} and {NO_NEW_FAILURES!r}..., and `builtin`,"
+                " are reserved"
+            )
         obligations.append(dict(WEAKENING_OBLIGATION))
         environment = _lock_environment(raw, pdir, root)
+        baselines = _regression_baselines(obligations, raw, environment, pdir, root, sandbox)
         body = {
             "title": raw["title"],
             "python": raw.get("python", "unknown"),
@@ -136,6 +143,7 @@ def accept_contract(cwd: Path, contract_file: Path) -> Record:
             "obligations": obligations,
             **({"environment": environment} if environment else {}),
             "weakening_baseline": weakening_snapshot(root, _files(build_manifest(root))),
+            **({"regression_baseline": baselines} if baselines else {}),
             "status": "accepted",
         }
         previous = store.latest("contract")
@@ -178,6 +186,7 @@ def new_contract(
     mode: str,
     acceptance: list[Path],
     accept: bool = False,
+    sandbox: str = "auto",
 ) -> Path:
     """Write a numbered contract from project defaults; optionally accept it."""
     try:
@@ -246,7 +255,7 @@ def new_contract(
     path = folder / f"{number:04d}-{_slug(title)}.toml"
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     if accept:
-        accept_contract(cwd, path)
+        accept_contract(cwd, path, sandbox=sandbox)
     return path
 
 
@@ -261,6 +270,97 @@ WEAKENING_OBLIGATION: dict[str, Any] = {
     "timeout_s": 300,
     "env": {},
 }
+
+NO_NEW_FAILURES = "no-new-failures"
+DENY_READ = ["~/.ssh"]  # plus the keys directory, see _deny_read
+
+
+def _reserved(obligation_id: str) -> bool:
+    return obligation_id == WEAKENING or obligation_id.startswith(NO_NEW_FAILURES)
+
+
+def _no_new_failures(of: str, single: bool) -> dict[str, Any]:
+    """Added at acceptance for each advisory regression suite (T87 item 1)."""
+    return {
+        "id": NO_NEW_FAILURES if single else f"{NO_NEW_FAILURES}-{of}",
+        "kind": "check",
+        "mandatory": True,
+        "builtin": NO_NEW_FAILURES,
+        "of": of,
+        "command": ["ohx", "builtin", NO_NEW_FAILURES, of],
+        "timeout_s": 300,
+        "env": {},
+    }
+
+
+def _deny_read() -> list[str]:
+    return [*DENY_READ, str(ohx_home() / "keys")]
+
+
+def _checker_srt(sandbox: str) -> Path | None:
+    srt = find_srt() if sandbox in ("auto", "srt") else None
+    if sandbox == "srt" and srt is None:
+        raise UsageError("sandbox `srt` requested but not found (set OHX_SRT)")
+    return srt
+
+
+def _checker_python(
+    body_python: str, environment: dict[str, Any] | None, pdir: Path, root: Path
+) -> tuple[str, str, str]:
+    """The checkers' interpreter, and an outcome and note when its environment is unusable."""
+    python = str(root / body_python) if body_python != "unknown" else sys.executable
+    if environment:
+        try:
+            python = str(_checker_environment(environment, pdir, root))
+        except _EnvironmentChanged as exc:
+            return python, "invalid", str(exc)
+        except EnvironmentUnavailable as exc:
+            return python, "unavailable", f"checker environment unavailable: {exc}"
+    return python, "", ""
+
+
+def _regression_run(
+    ob: dict[str, Any], root: Path, run_dir: Path, srt: Path | None, python: str
+) -> tuple[str, dict[str, str] | None]:
+    junit = run_dir / "tmp" / f"junit-{ob['id']}.xml"
+    r = run_obligation(
+        ob,
+        candidate=root,
+        protected=None,
+        run_dir=run_dir,
+        srt=srt,
+        deny_read=_deny_read(),
+        python=python,
+        extra_env=junit_env(junit),
+    )
+    return r.outcome, read_results(junit)
+
+
+def _regression_baselines(
+    obligations: list[dict[str, Any]],
+    raw: dict[str, Any],
+    environment: dict[str, Any] | None,
+    pdir: Path,
+    root: Path,
+    sandbox: str,
+) -> dict[str, Any]:
+    """Run each advisory regression suite once at acceptance and add its built-in check."""
+    advisory = [o for o in obligations if o.get("kind") == "regression" and not o["mandatory"]]
+    if not advisory:
+        return {}
+    srt = _checker_srt(sandbox)
+    python, env_outcome, _ = _checker_python(raw.get("python", "unknown"), environment, pdir, root)
+    run_dir = pdir / "runs" / f"accept-{uuid.uuid4().hex[:12]}"
+    baselines: dict[str, Any] = {}
+    for ob in advisory:
+        if env_outcome:
+            baselines[ob["id"]] = regression_baseline(env_outcome, None)
+        else:
+            baselines[ob["id"]] = regression_baseline(
+                *_regression_run(ob, root, run_dir, srt, python)
+            )
+        obligations.append(_no_new_failures(ob["id"], len(advisory) == 1))
+    return baselines
 
 
 def _files(manifest: dict[str, Any]) -> list[str]:
@@ -332,9 +432,7 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
         if contract is None:
             raise UsageError("no accepted contract; run `ohx contract accept <file>`")
 
-        srt = find_srt() if sandbox in ("auto", "srt") else None
-        if sandbox == "srt" and srt is None:
-            raise UsageError("sandbox `srt` requested but not found (set OHX_SRT)")
+        srt = _checker_srt(sandbox)
         protection = (
             "enforced: checkers ran in the srt sandbox"
             if srt
@@ -348,18 +446,13 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
         )
         run_id = uuid.uuid4().hex[:12]
         run_dir = pdir / "runs" / run_id
-        python = contract.body.get("python", "unknown")
-        python = str(root / python) if python != "unknown" else sys.executable
-        deny_read = ["~/.ssh", str(ohx_home() / "keys")]
-        env_outcome, env_note = "", ""
+        deny_read = _deny_read()
         environment = contract.body.get("environment")
-        if environment:
-            try:
-                python = str(_checker_environment(environment, pdir, root))
-            except _EnvironmentChanged as exc:
-                env_outcome, env_note = "invalid", str(exc)
-            except EnvironmentUnavailable as exc:
-                env_outcome, env_note = "unavailable", f"checker environment unavailable: {exc}"
+        python, env_outcome, env_note = _checker_python(
+            contract.body.get("python", "unknown"), environment, pdir, root
+        )
+        baselines: dict[str, Any] = contract.body.get("regression_baseline", {})
+        regression_runs: dict[str, tuple[str, dict[str, str] | None]] = {}
 
         observations: list[Observation] = []
         raw_obs: list[dict[str, Any]] = []
@@ -381,12 +474,20 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                 out = "\n".join(findings).encode()
                 ms = int((time.monotonic() - start) * 1000)
                 exit_code, argv = None, ob["command"]
+            elif ob.get("builtin") == NO_NEW_FAILURES:
+                ran = regression_runs.get(ob["of"])
+                if ran is None:
+                    outcome, note = "unavailable", f"the {ob['of']!r} suite did not run"
+                else:
+                    outcome, note = compare_regression(baselines[ob["of"]], *ran)
+                out, ms, exit_code, argv = note.encode(), 0, None, ob["command"]
             elif env_note:
                 outcome, exit_code, out, ms, argv = env_outcome, None, b"", 0, ob["command"]
                 note = env_note
             elif note:
                 outcome, exit_code, out, ms, argv = "invalid", None, b"", 0, ob["command"]
             else:
+                junit = run_dir / "tmp" / f"junit-{ob['id']}.xml"
                 r = run_obligation(
                     ob,
                     candidate=root,
@@ -395,7 +496,10 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                     srt=srt,
                     deny_read=deny_read,
                     python=python,
+                    extra_env=junit_env(junit) if ob["id"] in baselines else None,
                 )
+                if ob["id"] in baselines:
+                    regression_runs[ob["id"]] = (r.outcome, read_results(junit))
                 outcome, exit_code, out, ms, argv = (
                     r.outcome,
                     r.exit_code,
@@ -474,7 +578,7 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                 " identity",
                 *_interpreter_limitations(environment, python, root),
                 "Observations are not yet signed (walking skeleton)",
-                "Regression failures are not yet compared with a baseline (walking skeleton)",
+                *_regression_limitations(contract.body),
             ],
             "authorizes": "It is evidence of readiness, not permission to merge, deploy or"
             " publish.",
@@ -486,6 +590,21 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
         return rec, run_dir
     finally:
         store.close()
+
+
+def _regression_limitations(body: dict[str, Any]) -> list[str]:
+    baselines = body.get("regression_baseline", {})
+    unchecked = [
+        o["id"]
+        for o in body["obligations"]
+        if o.get("kind") == "regression" and not o["mandatory"] and o["id"] not in baselines
+    ]
+    if not unchecked:
+        return []
+    return [
+        f"Advisory regression suite(s) {', '.join(unchecked)} not compared with a baseline:"
+        " this contract was accepted before baselines existed"
+    ]
 
 
 def _interpreter_limitations(

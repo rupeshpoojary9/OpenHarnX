@@ -77,6 +77,7 @@ def run_obligation(
     srt: Path | None,
     deny_read: list[str],
     python: str | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> CheckerRun:
     tmp = run_dir / "tmp"
     tmp.mkdir(parents=True, exist_ok=True)
@@ -96,6 +97,7 @@ def run_obligation(
         "TMPDIR": str(tmp),
         "PYTHONDONTWRITEBYTECODE": "1",
         **{k: _expand(v, subs) for k, v in obligation.get("env", {}).items()},
+        **(extra_env or {}),
     }
     if srt is not None:
         profile = write_profile(

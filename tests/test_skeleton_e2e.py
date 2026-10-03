@@ -46,7 +46,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("OHX_HOME", str(tmp_path / "ohx-home"))
     monkeypatch.chdir(repo)
     assert main(["init"]) == EXIT_OK
-    assert main(["contract", "accept", str(CONTRACT)]) == EXIT_OK
+    assert main(["contract", "accept", str(CONTRACT), "--sandbox", "none"]) == EXIT_OK
     return repo
 
 
@@ -153,7 +153,7 @@ def test_report_is_stale_after_source_edit(repo: Path, capsys: pytest.CaptureFix
 def test_report_is_stale_after_new_contract(repo: Path) -> None:
     _apply(repo, VARIANTS["valid_fix"][0])
     assert main(["verify", "--sandbox", "none"]) == EXIT_OK
-    assert main(["contract", "accept", str(CONTRACT)]) == EXIT_OK
+    assert main(["contract", "accept", str(CONTRACT), "--sandbox", "none"]) == EXIT_OK
     assert main(["report"]) == EXIT_BLOCKED
 
 

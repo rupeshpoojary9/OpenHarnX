@@ -56,12 +56,23 @@ def _cmd_init(_: argparse.Namespace) -> int:
 
 
 def _cmd_contract_accept(args: argparse.Namespace) -> int:
-    record = accept_contract(Path.cwd(), Path(args.file))
+    record = accept_contract(Path.cwd(), Path(args.file), sandbox=args.sandbox)
     body = record.body
     print(f"accepted {body['title']!r} as {record.revision_id}")
     for ob in body["obligations"]:
         flag = "mandatory" if ob["mandatory"] else "advisory"
         print(f"  {ob['id']:24} {ob['kind']:11} {flag}")
+    for suite, base in body.get("regression_baseline", {}).items():
+        tests = base["tests"]
+        if tests is None:
+            print(
+                f"  baseline for {suite}: suite ended with {base['outcome']}, no per-test results"
+            )
+        else:
+            failing = sum(1 for o in tests.values() if o == "fail")
+            print(
+                f"  baseline for {suite}: {len(tests)} tests, {failing} failing before this change"
+            )
     return EXIT_OK
 
 
@@ -73,6 +84,7 @@ def _cmd_contract_new(args: argparse.Namespace) -> int:
         mode=args.mode,
         acceptance=[Path(p) for p in args.acceptance],
         accept=args.accept,
+        sandbox=args.sandbox,
     )
     print(f"wrote {path}")
     if args.accept:
@@ -213,6 +225,12 @@ def build_parser() -> argparse.ArgumentParser:
     csub = contract.add_subparsers(dest="contract_command", metavar="<action>")
     accept = csub.add_parser("accept", help="validate and accept a contract TOML file")
     accept.add_argument("file")
+    accept.add_argument(
+        "--sandbox",
+        choices=["auto", "srt", "none"],
+        default="auto",
+        help="where the regression baseline runs",
+    )
     accept.set_defaults(func=_cmd_contract_accept)
     new = csub.add_parser("new", help="write a contract from project defaults")
     new.add_argument("--title", required=True)
@@ -225,6 +243,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="test file or folder that proves the change; locked away at acceptance",
     )
     new.add_argument("--accept", action="store_true", help="accept it straight away")
+    new.add_argument(
+        "--sandbox",
+        choices=["auto", "srt", "none"],
+        default="auto",
+        help="where the regression baseline runs when accepting",
+    )
     new.set_defaults(func=_cmd_contract_new)
 
     ver = sub.add_parser("verify", help="verify the current candidate against the contract")
