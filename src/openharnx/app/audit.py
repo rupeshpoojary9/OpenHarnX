@@ -131,6 +131,12 @@ def audit_trail(cwd: Path) -> list[str]:
                 outside(rec.body, when)
                 lines.append(f"{when}  verify   candidate {rec.body.get('digest', '')[:19]}")
                 state, source = rec.body, "the last verification"
+            elif kind == "signature":
+                signer = rec.body.get("signer")
+                lines.append(
+                    f"{when}  signed   records 1 to {rec.body.get('seq')} by {_who(signer)},"
+                    f" key {rec.body.get('fingerprint')}"
+                )
             elif kind == "assurance_report":
                 lines.append(f"{when}  verdict  {str(rec.body.get('readiness')).upper()}")
         return lines

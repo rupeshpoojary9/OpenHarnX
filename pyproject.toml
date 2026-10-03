@@ -62,7 +62,7 @@ layers = [
     "openharnx.cli",
     "openharnx.app",
     "openharnx.verify | openharnx.agent",
-    "openharnx.sandbox | openharnx.store | openharnx.workspace | openharnx.report | openharnx.doctor | openharnx.environment | openharnx.weakening | openharnx.regression",
+    "openharnx.sandbox | openharnx.store | openharnx.workspace | openharnx.report | openharnx.doctor | openharnx.environment | openharnx.weakening | openharnx.regression | openharnx.signing",
     "openharnx.kernel",
 ]
 

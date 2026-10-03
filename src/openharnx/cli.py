@@ -23,6 +23,7 @@ from openharnx.app import (
     current_report,
     init_project,
     new_contract,
+    sign_evidence,
     verify,
 )
 from openharnx.app.audit import audit_trail
@@ -110,8 +111,10 @@ def _cmd_report(args: argparse.Namespace) -> int:
     return EXIT_OK if report["readiness"] == "ready" else EXIT_BLOCKED
 
 
-def _cmd_store_check(_: argparse.Namespace) -> int:
-    problems = check_store(Path.cwd())
+def _cmd_store_check(args: argparse.Namespace) -> int:
+    problems, signatures = check_store(Path.cwd(), args.signer)
+    for line in signatures:
+        print(line)
     for p in problems:
         print(p)
     print("store ok" if not problems else f"{len(problems)} problem(s)")
@@ -324,8 +327,17 @@ def build_parser() -> argparse.ArgumentParser:
     store = sub.add_parser("store", help="evidence store maintenance")
     ssub = store.add_subparsers(dest="store_command", metavar="<action>")
     chk = ssub.add_parser("check", help="verify the hash chain and record digests")
+    chk.add_argument(
+        "--signer",
+        action="append",
+        help="expected signing key: a public key file or a SHA256 fingerprint; repeatable",
+    )
     chk.set_defaults(func=_cmd_store_check)
     return parser
+
+
+# Commands that write evidence; each ends by signing the chain head (T87 item 4).
+WRITERS = {"init", "contract", "verify", "bug", "trace"}
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -336,6 +348,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_USAGE
     try:
         code: int = args.func(args)
+        if args.command in WRITERS:
+            note = sign_evidence(Path.cwd())
+            if note:
+                print(note, file=sys.stderr)
     except UsageError as exc:
         print(f"ohx: {exc}", file=sys.stderr)
         return EXIT_USAGE

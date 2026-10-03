@@ -8,6 +8,8 @@ Policy: [ADR-0002](adr/0002-dependency-policy.md). Versions are those resolved i
 |---|---|---|---|
 | rfc8785 | 0.1.4 | Apache-2.0 (classifier, read 2026-09-28) | RFC 8785 canonical JSON for record digests; pure Python, no dependencies |
 
+System tool: `ssh-keygen` from OpenSSH 8.2 or later signs and checks evidence (T87 item 4); without it, evidence is recorded unsigned.
+
 Optional, not yet installed: `srt` (sandbox-runtime 0.0.77, Apache-2.0, npm) is found through `OHX_SRT` or `PATH` for sandboxed verification (ADR-0007).
 
 ## Build backend (not shipped)

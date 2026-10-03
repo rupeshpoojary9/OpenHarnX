@@ -187,6 +187,30 @@ class Store:
         ).fetchall()
         return [self._record(r) for r in rows]
 
+    def head(self) -> tuple[int, str, str] | None:
+        """Sequence number, chain hash and entity type of the last record."""
+        row = self.db.execute(
+            "SELECT seq, hash, entity_type FROM events ORDER BY seq DESC LIMIT 1"
+        ).fetchone()
+        return (int(row[0]), str(row[1]), str(row[2])) if row else None
+
+    def hash_at(self, seq: int) -> str | None:
+        row = self.db.execute("SELECT hash FROM events WHERE seq = ?", (seq,)).fetchone()
+        return str(row[0]) if row else None
+
+    def seq_of(self, revision_id: str) -> int | None:
+        row = self.db.execute(
+            "SELECT seq FROM events WHERE revision_id = ?", (revision_id,)
+        ).fetchone()
+        return int(row[0]) if row else None
+
+    def count_after(self, seq: int, excluding: str) -> int:
+        """Records after `seq`, not counting those of type `excluding`."""
+        row = self.db.execute(
+            "SELECT COUNT(*) FROM events WHERE seq > ? AND entity_type != ?", (seq, excluding)
+        ).fetchone()
+        return int(row[0])
+
     def history(self) -> list[Record]:
         """Every record, in the order it was appended."""
         rows = self.db.execute(self._SELECT + " ORDER BY e.seq").fetchall()

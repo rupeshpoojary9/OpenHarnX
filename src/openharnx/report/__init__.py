@@ -12,6 +12,16 @@ READINESS = {
 }
 
 
+def _signature_line(report: dict[str, Any]) -> list[str]:
+    sig = report.get("signature")
+    if not sig:
+        return []
+    if sig["status"] != "signed":
+        return ["- Signature: not signed"]
+    signer = sig.get("signer") or {}
+    return [f"- Signature: signed by {signer.get('name', 'unknown')}, key {sig['fingerprint']}"]
+
+
 def render_markdown(report: dict[str, Any]) -> str:
     gate = report["gate"]
     cand = report["candidate"]
@@ -38,6 +48,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Candidate: `{cand['digest']}` (base commit {cand['base_commit']})",
         f"- Gate: **{gate['result']}**, evidence coverage {gate['coverage_percent']}%",
         f"- Verifier protection: {report['protection']['verifier']}",
+        *_signature_line(report),
         "",
         "## Obligations",
         "",
