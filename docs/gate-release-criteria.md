@@ -7,7 +7,7 @@ Out of scope for this release: `ohx bug` (agent-driven fixes), `ohx trace` (requ
 ## Release decision
 
 **Releasable now: no**
-Blocking: RC-02, RC-16, RC-17, RC-18, RC-19, RC-24, RC-25, RC-30.
+Blocking: RC-02, RC-16, RC-17, RC-18, RC-19, RC-24, RC-25.
 
 ## Supported environment
 
@@ -30,7 +30,7 @@ Trusted: the accepted contract and the protected copies of its acceptance tests,
 | RC-06 | A candidate file cannot replace the checker or a module it imports | required | met | `tests/test_checker_shadowing.py::test_candidate_file_cannot_replace_the_checker`, `tests/test_checker_shadowing.py::test_checker_found_only_in_the_candidate_is_not_a_pass` | |
 | RC-07 | The verifier does not change the candidate it judges | required | met | `tests/test_skeleton_e2e.py::test_verification_leaves_the_repository_untouched` | |
 | RC-08 | Checkers see an allowlisted environment, never the caller's secrets | required | met | `tests/test_sandbox_env.py::test_child_gets_proxy_and_allowlist_but_not_caller_secrets` | |
-| RC-30 | A change to the candidate during verification invalidates every result of that run (implemented, not yet tested) | required | not met | | T79 |
+| RC-30 | A change to the candidate during verification invalidates every result of that run | required | met | `tests/test_gate_ci.py::test_a_candidate_changed_during_verification_is_invalid` | |
 | RC-09 | Evidence is signed by the owner's key; a rebuilt or re-signed chain is detected | required | met | `tests/test_signing.py::test_a_rebuilt_chain_breaks_the_signature`, `tests/test_signing.py::test_a_chain_re_signed_with_another_key_fails_the_pinned_signer` | |
 
 ## What READY means

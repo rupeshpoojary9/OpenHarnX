@@ -12,6 +12,16 @@ READINESS = {
 }
 
 
+def _ci_line(report: dict[str, Any]) -> list[str]:
+    ci = report.get("ci")
+    if not ci:
+        return []
+    return [
+        f"- Pull request head `{ci['head_commit'][:12]}` judged against base"
+        f" `{ci['base_commit'][:12]}` ({ci['base_ref']}): its tests, policy and checks"
+    ]
+
+
 def _signature_line(report: dict[str, Any]) -> list[str]:
     sig = report.get("signature")
     if not sig:
@@ -46,6 +56,7 @@ def render_markdown(report: dict[str, Any]) -> str:
     lines += [
         f"- Contract: {report['contract']['title']} ({report['contract']['revision_id']})",
         f"- Candidate: `{cand['digest']}` (base commit {cand['base_commit']})",
+        *_ci_line(report),
         f"- Gate: **{gate['result']}**, evidence coverage {gate['coverage_percent']}%",
         f"- Verifier protection: {report['protection']['verifier']}",
         *_signature_line(report),

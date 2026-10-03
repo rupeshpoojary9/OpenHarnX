@@ -101,7 +101,12 @@ def init_project(cwd: Path) -> tuple[Path, Record]:
     return pdir, record
 
 
-def accept_contract(cwd: Path, contract_file: Path, sandbox: str = "auto") -> Record:
+def accept_contract(
+    cwd: Path, contract_file: Path, sandbox: str = "auto", baseline_root: Path | None = None
+) -> Record:
+    """Lock a contract. Baselines (weakening, regression, environment, tree) come from
+    `baseline_root` when given, the trusted base of a pull request in CI, else from the
+    repository as it is now."""
     try:
         raw = tomllib.loads(contract_file.read_text(encoding="utf-8"))  # TOML is UTF-8
     except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
@@ -137,15 +142,16 @@ def accept_contract(cwd: Path, contract_file: Path, sandbox: str = "auto") -> Re
                 del ob["protected"]
             obligations.append(ob)
         root = repo_root(cwd)
+        base = baseline_root or root
         if any(ob.get("builtin") or _reserved(ob["id"]) for ob in obligations):
             raise UsageError(
                 f"obligation ids {WEAKENING!r} and {NO_NEW_FAILURES!r}..., and `builtin`,"
                 " are reserved"
             )
         obligations.append(dict(WEAKENING_OBLIGATION))
-        environment = _lock_environment(raw, pdir, root)
-        baselines = _regression_baselines(obligations, raw, environment, pdir, root, sandbox)
-        accepted_tree = build_manifest(root)
+        environment = _lock_environment(raw, pdir, base)
+        baselines = _regression_baselines(obligations, raw, environment, pdir, base, sandbox, root)
+        accepted_tree = build_manifest(base)
         body = {
             "title": raw["title"],
             "python": raw.get("python", "unknown"),
@@ -156,7 +162,7 @@ def accept_contract(cwd: Path, contract_file: Path, sandbox: str = "auto") -> Re
             "documentation_obligations": ["assurance_report", "changelog_entry"],
             "obligations": obligations,
             **({"environment": environment} if environment else {}),
-            "weakening_baseline": weakening_snapshot(root, _files(accepted_tree)),
+            "weakening_baseline": weakening_snapshot(base, _files(accepted_tree)),
             "accepted_by": git_user(root),
             "accepted_paths": sorted(
                 str(p.relative_to(root)) for p in written if p.is_relative_to(root)
@@ -326,10 +332,18 @@ def _checker_srt(sandbox: str) -> Path | None:
 
 
 def _checker_python(
-    body_python: str, environment: dict[str, Any] | None, pdir: Path, root: Path
+    body_python: str,
+    environment: dict[str, Any] | None,
+    pdir: Path,
+    root: Path,
+    python_root: Path | None = None,
 ) -> tuple[str, str, str]:
-    """The checkers' interpreter, and an outcome and note when its environment is unusable."""
-    python = str(root / body_python) if body_python != "unknown" else sys.executable
+    """The checkers' interpreter, and an outcome and note when its environment is unusable.
+
+    A relative `python` resolves against `python_root` (default `root`): in CI the base
+    is a bare copy without the candidate's virtual environment."""
+    where = python_root or root
+    python = str(where / body_python) if body_python != "unknown" else sys.executable
     if environment:
         try:
             python = str(_checker_environment(environment, pdir, root))
@@ -341,13 +355,18 @@ def _checker_python(
 
 
 def _regression_run(
-    ob: dict[str, Any], root: Path, run_dir: Path, srt: Path | None, python: str
+    ob: dict[str, Any],
+    root: Path,
+    run_dir: Path,
+    srt: Path | None,
+    python: str,
+    protected: Path | None = None,
 ) -> tuple[str, dict[str, str] | None]:
     junit = run_dir / "tmp" / f"junit-{ob['id']}.xml"
     r = run_obligation(
         ob,
         candidate=root,
-        protected=None,
+        protected=protected,
         run_dir=run_dir,
         srt=srt,
         deny_read=_deny_read(),
@@ -364,22 +383,25 @@ def _regression_baselines(
     pdir: Path,
     root: Path,
     sandbox: str,
+    python_root: Path | None = None,
 ) -> dict[str, Any]:
     """Run each advisory regression suite once at acceptance and add its built-in check."""
     advisory = [o for o in obligations if o.get("kind") == "regression" and not o["mandatory"]]
     if not advisory:
         return {}
     srt = _checker_srt(sandbox)
-    python, env_outcome, _ = _checker_python(raw.get("python", "unknown"), environment, pdir, root)
+    python, env_outcome, _ = _checker_python(
+        raw.get("python", "unknown"), environment, pdir, root, python_root
+    )
     run_dir = pdir / "runs" / f"accept-{uuid.uuid4().hex[:12]}"
     baselines: dict[str, Any] = {}
     for ob in advisory:
         if env_outcome:
             baselines[ob["id"]] = regression_baseline(env_outcome, None)
         else:
-            baselines[ob["id"]] = regression_baseline(
-                *_regression_run(ob, root, run_dir, srt, python)
-            )
+            protected = pdir / ob["protected_store_path"] if "protected_store_path" in ob else None
+            ran = _regression_run(ob, root, run_dir, srt, python, protected)
+            baselines[ob["id"]] = regression_baseline(*ran)
         obligations.append(_no_new_failures(ob["id"], len(advisory) == 1))
     return baselines
 

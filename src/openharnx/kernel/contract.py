@@ -5,7 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-MODES = frozenset({"bugfix", "task"})
+# "gate": a pull request judged in CI against its base commit (T79). Its guarantee comes
+# from the base's locked tests, the regression baseline and the weakening check, not
+# from a new acceptance test, so it is the one mode that does not need one.
+MODES = frozenset({"bugfix", "task", "gate"})
 KINDS = frozenset({"acceptance", "regression", "check"})
 ENVIRONMENTS = frozenset({"uv"})
 
@@ -75,6 +78,6 @@ def validate_contract(raw: Mapping[str, Any]) -> list[str]:
         if kind == "acceptance" and mandatory is True:
             mandatory_acceptance = True
 
-    if not mandatory_acceptance:
+    if not mandatory_acceptance and raw.get("mode") != "gate":
         errors.append("obligations: at least one mandatory acceptance obligation is required")
     return errors

@@ -28,6 +28,7 @@ from openharnx.app import (
 )
 from openharnx.app.audit import audit_trail
 from openharnx.app.bug import bug_approve, bug_fix, bug_new, bug_show, describe_proposed
+from openharnx.app.gate import gate
 from openharnx.app.trace import trace_approve, trace_check, trace_init
 from openharnx.doctor import run_checks
 from openharnx.report import render_markdown
@@ -167,6 +168,20 @@ def _cmd_trace_approve(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_gate(args: argparse.Namespace) -> int:
+    report = gate(
+        Path.cwd(),
+        args.base,
+        sandbox=args.sandbox,
+        out=Path(args.out),
+        contract=args.contract,
+        home=Path(args.home) if args.home else None,
+    )
+    print(render_markdown(report))
+    print(f"Saved to {Path(args.out).resolve()}")
+    return EXIT_OK if report["readiness"] == "ready" else EXIT_BLOCKED
+
+
 def _cmd_audit(args: argparse.Namespace) -> int:
     for line in audit_trail(Path.cwd()):
         print(line)
@@ -281,6 +296,14 @@ def build_parser() -> argparse.ArgumentParser:
     ver.add_argument("--sandbox", choices=["auto", "srt", "none"], default="auto")
     ver.add_argument("--json", action="store_true")
     ver.set_defaults(func=_cmd_verify)
+
+    gat = sub.add_parser("gate", help="CI: judge the checked-out change against its base commit")
+    gat.add_argument("--base", required=True, help="base commit or ref (the trusted side)")
+    gat.add_argument("--sandbox", choices=["auto", "srt", "none"], default="auto")
+    gat.add_argument("--out", default="ohx-gate", help="folder for report.json and report.md")
+    gat.add_argument("--contract", help="a contract file in the base commit, instead of its tests")
+    gat.add_argument("--home", help="keep the evidence store here (default: a throwaway one)")
+    gat.set_defaults(func=_cmd_gate)
 
     aud = sub.add_parser("audit", help="who did what and touched what, from the evidence store")
     aud.set_defaults(func=_cmd_audit)
