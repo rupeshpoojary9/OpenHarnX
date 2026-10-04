@@ -396,15 +396,17 @@ def test_node_results_that_cannot_be_told_apart_are_not_used(tmp_path: Path) -> 
 
 
 @needs_node
-def test_a_new_ts_ignore_blocks_verification(
+def test_a_new_ts_ignore_is_listed_when_no_type_checker_runs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Node strips types without checking them, so with only `node --test` in the
+    # contract a @ts-ignore lowers no bar; it is listed, not counted (T90a).
     repo = _repo(tmp_path, monkeypatch, {"src/calc.ts": BUGGY, "src/calc.test.ts": NODE_TEST})
     _accept("src/calc.test.ts")
     (repo / "src" / "calc.ts").write_text("// @ts-ignore\n" + FIXED)
     code, report = _verify()
-    assert code == EXIT_BLOCKED
-    assert "@ts-ignore" in _observation(report, "weakening")["note"]
+    assert code == EXIT_OK
+    assert "not counted" in _observation(report, "weakening")["note"]
 
 
 @needs_node

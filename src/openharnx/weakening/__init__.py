@@ -14,6 +14,14 @@ support (version 1) are compared on Python only, before Go support
 (version 2) without Go, and before the source checks (version 3) without them, so their
 contracts judge as they did.
 
+Scope (T90a, spec-kit replay, 2026-10-04): a suppression counts only when the contract
+runs the checker it silences (`active_checkers`); with any command that is not
+recognised, every suppression counts. Skips count only when unconditional: a `skipif`
+with a condition, a skip inside an `if` or `except`, or `importorskip` skip nothing on
+the platform where they matter, and skipping a test that passed is caught by the
+no-new-failures check. Baselines made before this (version 4) counted every skip, so
+they are compared with the old count.
+
 Source checks (impossible-tasks replay, 2026-10-04): code outside the tests can also lower
 the bar. In Python files that are not tests, a new patch of an imported module (the code
 replacing `random.randint` the test uses) or a new `__eq__` that can hide a wrong result
@@ -24,6 +32,7 @@ value with something computed only when the test compares) is a finding.
 from __future__ import annotations
 
 import ast
+import configparser
 import hashlib
 import json
 import re
@@ -31,7 +40,7 @@ import tomllib
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-BASELINE_VERSION = 4
+BASELINE_VERSION = 5
 
 # Files that configure checkers, wherever they are (ruff and pytest read nested ones).
 CONFIG_NAMES = frozenset(
@@ -120,6 +129,169 @@ _TESTS = re.compile(r"^\s*(?:async\s+)?def\s+test\w*\s*\(", re.MULTILINE)
 _CHECKS = re.compile(
     r"^\s*assert\b|\bself\.assert\w*\s*\(|\bpytest\.(?:raises|warns)\s*\(", re.MULTILINE
 )
+
+
+SKIP = "skip or xfail"
+# The checkers that read each suppression (T90a). Kinds not listed count always.
+KIND_CHECKERS: dict[str, frozenset[str]] = {
+    "noqa": frozenset({"ruff", "flake8"}),
+    "file-level noqa": frozenset({"ruff", "flake8"}),
+    "type: ignore": frozenset({"mypy", "pyright"}),
+    "pyright: ignore": frozenset({"pyright"}),
+    "inline mypy setting": frozenset({"mypy"}),
+    "pragma: no cover": frozenset({"coverage"}),
+    "@ts-ignore": frozenset({"tsc", "vue-tsc"}),
+    "@ts-expect-error": frozenset({"tsc", "vue-tsc"}),
+    "@ts-nocheck": frozenset({"tsc", "vue-tsc"}),
+    "eslint-disable": frozenset({"eslint"}),
+    "biome-ignore": frozenset({"biome"}),
+    "coverage ignore": frozenset({"coverage"}),
+    "nolint": frozenset({"golangci-lint"}),
+    "lint:ignore": frozenset({"staticcheck", "golangci-lint"}),
+    "#nosec": frozenset({"gosec", "golangci-lint"}),
+}
+# Commands whose suppressions are known; anything else makes every suppression count.
+KNOWN_CHECKERS = frozenset(
+    {
+        "pytest", "ruff", "flake8", "pylint", "mypy", "pyright", "coverage", "lint-imports",
+        "tsc", "vue-tsc", "eslint", "biome", "vitest", "jest", "node",
+        "go", "golangci-lint", "staticcheck", "gosec",
+    }
+)  # fmt: skip
+_RUNS = {"uv": "run", "poetry": "run", "pipx": "run", "pdm": "run", "hatch": "run"}
+_PYTEST_PLUGINS = {"--mypy": "mypy", "--flake8": "flake8", "--ruff": "ruff", "--pylint": "pylint"}
+
+
+def _name(arg: str) -> str:
+    return PurePosixPath(arg.replace("\\", "/")).name
+
+
+def _command_checkers(argv: list[str]) -> set[str] | None:
+    args = [a for a in argv if a]
+    while args and (_name(args[0]) in _RUNS or _name(args[0]) in ("npx", "pnpx", "bunx")):
+        if _name(args[0]) in _RUNS:
+            if len(args) < 2 or args[1] != _RUNS[_name(args[0])]:
+                return None
+            args = args[2:]
+        else:
+            args = args[1:]
+        while args and args[0].startswith("-"):
+            args = args[1:]
+    if not args:
+        return None
+    tool, rest = _name(args[0]), args[1:]
+    if tool == "{python}" or tool.startswith("python"):
+        if len(rest) < 2 or rest[0] != "-m":
+            return None
+        tool, rest = rest[1], rest[2:]
+    if tool not in KNOWN_CHECKERS:
+        return None
+    found = {tool}
+    if tool == "coverage" and "-m" in rest and rest.index("-m") + 1 < len(rest):
+        inner = rest[rest.index("-m") + 1]
+        if inner not in KNOWN_CHECKERS:
+            return None
+        found.add(inner)
+    if any(a.startswith("--cov") or a == "--coverage" for a in rest):
+        found.add("coverage")
+    return found
+
+
+def _pytest_addopts(root: Path) -> list[str]:
+    opts: list[str] = []
+    try:
+        tool = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8")).get("tool", {})
+        value = tool.get("pytest", {}).get("ini_options", {}).get("addopts", [])
+        opts += value.split() if isinstance(value, str) else [str(v) for v in value]
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError, AttributeError):
+        pass
+    for name, section in (
+        ("pytest.ini", "pytest"),
+        ("tox.ini", "pytest"),
+        ("setup.cfg", "tool:pytest"),
+    ):
+        parser = configparser.ConfigParser(interpolation=None)
+        try:
+            parser.read(root / name, encoding="utf-8")
+            opts += parser.get(section, "addopts", fallback="").split()
+        except (configparser.Error, UnicodeDecodeError):
+            continue
+    return opts
+
+
+def active_checkers(obligations: list[dict[str, Any]], root: Path) -> frozenset[str] | None:
+    """The checkers the contract's commands run, or None when a command is not recognised
+    (a script, `make`, `npm test`), so that every suppression counts (T90a). Pytest
+    options in the project's configuration add the checkers they turn on."""
+    found: set[str] = set()
+    for ob in obligations:
+        if ob.get("builtin"):
+            continue
+        tools = _command_checkers([str(a) for a in ob.get("command", [])])
+        if tools is None:
+            return None
+        found |= tools
+    if "pytest" in found:
+        for opt in _pytest_addopts(root):
+            if opt.startswith("--cov"):
+                found.add("coverage")
+            elif opt.split("=")[0] in _PYTEST_PLUGINS:
+                found.add(_PYTEST_PLUGINS[opt.split("=")[0]])
+    return frozenset(found)
+
+
+def _dotted(node: ast.expr) -> tuple[str, ...]:
+    parts: list[str] = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if isinstance(node, ast.Name):
+        parts.append(node.id)
+    return tuple(reversed(parts))
+
+
+# Names as parts, so that this file holds no text the skip pattern above would count.
+_MARK, _UNITTEST = ("pytest", "mark"), ("unittest",)
+_ALWAYS_SKIP = {(*_MARK, "skip"), (*_UNITTEST, "skip"), (*_UNITTEST, "expectedFailure")}
+_SKIP_CALLS = {("pytest", "skip"), ("pytest", "xfail")}
+
+
+def _always(node: ast.expr | None) -> bool:
+    return isinstance(node, ast.Constant) and bool(node.value) and not isinstance(node.value, str)
+
+
+def _skips(tree: ast.Module) -> int:
+    """Unconditional pytest and unittest skips and expected failures."""
+    calls = {id(n.func): n for n in ast.walk(tree) if isinstance(n, ast.Call)}
+    count = 0
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute):
+            continue
+        name = _dotted(node)
+        call = calls.get(id(node))
+        condition = None
+        if call is not None:
+            kw = {k.arg: k.value for k in call.keywords}
+            condition = call.args[0] if call.args else kw.get("condition")
+        if name in _ALWAYS_SKIP:
+            count += 1
+        elif name == (*_MARK, "xfail"):
+            count += condition is None or _always(condition)
+        elif name == (*_MARK, "skipif"):
+            count += call is not None and _always(condition)
+    # A skip or xfail call, or self.skipTest(), as a statement of its own in a function or
+    # module body; inside an if, try, loop or with it is conditional.
+    for body_owner in ast.walk(tree):
+        if not isinstance(body_owner, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for stmt in body_owner.body:
+            if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+                func = stmt.value.func
+                if _dotted(func) in _SKIP_CALLS or (
+                    isinstance(func, ast.Attribute) and func.attr == "skipTest"
+                ):
+                    count += 1
+    return count
 
 
 PATCH = "patch of an imported module"
@@ -229,6 +401,17 @@ def _equalities(tree: ast.Module) -> int:
     )
 
 
+def _python_counts(text: str, test: bool) -> dict[str, int] | None:
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return None
+    counts = {SKIP: _skips(tree)}
+    if not test:
+        counts |= {PATCH: _patches(tree), EQUALITY: _equalities(tree)}
+    return counts
+
+
 def _source_counts(text: str) -> dict[str, int]:
     try:
         tree = ast.parse(text)
@@ -293,6 +476,7 @@ def snapshot(root: Path, paths: list[str]) -> dict[str, Any]:
     config: dict[str, str] = {}
     suppressions: dict[str, dict[str, int]] = {}
     tests: dict[str, dict[str, int]] = {}
+    any_skips: dict[str, int] = {}  # every skip, as baselines before version 5 counted
     for rel in sorted(paths):
         try:
             data = (root / rel).read_bytes()
@@ -313,8 +497,10 @@ def snapshot(root: Path, paths: list[str]) -> dict[str, Any]:
             continue
         text = data.decode("utf-8", errors="replace")
         counts = {k: len(p.findall(text)) for k, p in patterns.items()}
-        if rel.endswith(".py") and not is_test_file(rel):
-            counts |= _source_counts(text)
+        if rel.endswith(".py"):
+            if counts.get(SKIP):
+                any_skips[rel] = counts[SKIP]
+            counts |= _python_counts(text, is_test_file(rel)) or {}
         counts = {k: n for k, n in counts.items() if n}
         if counts:
             suppressions[rel] = counts
@@ -328,6 +514,7 @@ def snapshot(root: Path, paths: list[str]) -> dict[str, Any]:
         "config": config,
         "suppressions": suppressions,
         "tests": tests,
+        "any_skips": any_skips,
     }
 
 
@@ -353,6 +540,18 @@ def _as_version(snap: dict[str, Any], version: int) -> dict[str, Any]:
             k: {kind: n for kind, n in v.items() if kind not in SOURCE_CHECKS}
             for k, v in suppressions.items()
         }
+    if version < 5:  # every skip counted, conditional or not
+        any_skips = snap.get("any_skips", {})
+        suppressions = {
+            k: {
+                **{kind: n for kind, n in v.items() if kind != SKIP},
+                **({SKIP: any_skips[k]} if any_skips.get(k) else {}),
+            }
+            for k, v in suppressions.items()
+        }
+        for k, n in any_skips.items():
+            if k not in suppressions and known(k):
+                suppressions[k] = {SKIP: n}
     return {
         **snap,
         "config": {k: v for k, v in snap["config"].items() if known(k, config=True)},
@@ -361,8 +560,12 @@ def _as_version(snap: dict[str, Any], version: int) -> dict[str, Any]:
     }
 
 
-def compare(baseline: dict[str, Any], current: dict[str, Any]) -> list[str]:
-    """Findings that lower the bar since the baseline; empty means none found."""
+def compare(
+    baseline: dict[str, Any], current: dict[str, Any], active: frozenset[str] | None = None
+) -> list[str]:
+    """Findings that lower the bar since the baseline; empty means none found. With
+    `active`, the checkers the contract runs, a suppression for another checker does not
+    count (T90a)."""
     if baseline.get("version", 1) < BASELINE_VERSION:
         current = _as_version(current, baseline.get("version", 1))
     findings: list[str] = []
@@ -377,6 +580,9 @@ def compare(baseline: dict[str, Any], current: dict[str, Any]) -> list[str]:
     for path, counts in sorted(current["suppressions"].items()):
         before = baseline["suppressions"].get(path, {})
         for kind, n in sorted(counts.items()):
+            readers = KIND_CHECKERS.get(kind)
+            if active is not None and readers is not None and not readers & active:
+                continue
             if n > before.get(kind, 0):
                 findings.append(f"{path}: {n - before.get(kind, 0)} new {kind}")
     for path, before in sorted(baseline["tests"].items()):

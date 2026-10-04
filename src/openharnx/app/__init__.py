@@ -46,7 +46,7 @@ from openharnx.signing import (
 from openharnx.signing import message as signed_message
 from openharnx.store import Record, Store
 from openharnx.verify import run_obligation
-from openharnx.weakening import JS_SOURCE, is_test_file
+from openharnx.weakening import JS_SOURCE, active_checkers, is_test_file
 from openharnx.weakening import compare as compare_weakening
 from openharnx.weakening import snapshot as weakening_snapshot
 from openharnx.workspace import (
@@ -710,9 +710,20 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
             if ob.get("builtin") == WEAKENING:
                 start = time.monotonic()
                 current = weakening_snapshot(root, _files(before))
-                findings = compare_weakening(contract.body["weakening_baseline"], current)
+                active = active_checkers(contract.body["obligations"], root)
+                baseline = contract.body["weakening_baseline"]
+                findings = compare_weakening(baseline, current, active)
                 outcome = "fail" if findings else "pass"
                 note = "; ".join(findings)
+                ignored = [f for f in compare_weakening(baseline, current) if f not in findings]
+                if ignored:
+                    note = "; ".join(
+                        [
+                            *([note] if note else []),
+                            "not counted, since this contract runs no checker that reads"
+                            f" them ({', '.join(sorted(active or ()))}): {'; '.join(ignored)}",
+                        ]
+                    )
                 if findings and approval:
                     outcome, note = "pass", f"{_approved(approval)}: {note}"
                 out = "\n".join(findings).encode()
