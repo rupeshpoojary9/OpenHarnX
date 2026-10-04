@@ -36,6 +36,16 @@ def _claims_lines(report: dict[str, Any]) -> list[str]:
         " the task is done; add them with `ohx contract new --acceptance`",
     }[claims["acceptance"]]
     lines = ["## What this verdict supports", "", f"- No regressions: {regress}"]
+    tests = claims.get("tests")
+    if tests:
+        line = f"- Tests: {tests['checked']} of {tests['ran']} tests checked this change"
+        failed, skipped = tests["failed_both_times"], tests["skipped_both_times"]
+        parts = [f"{failed} failed"] if failed else []
+        if skipped:
+            parts.append(f"{skipped} {'was' if skipped == 1 else 'were'} skipped")
+        if parts:
+            line += f"; {' and '.join(parts)} both before and after, so they checked nothing"
+        lines.append(line)
     lines.append(f"- Acceptance criteria: {acceptance}")
     still = claims["still_failing"]
     if still:
