@@ -7,7 +7,7 @@
 
 # OpenHarnX
 
-OpenHarnX is a local-first delivery system that plans, staffs, controls and verifies work done by existing coding agents such as Claude Code and Codex, and learns which team configurations actually work.
+OpenHarnX is a local-first verifier for work done by coding agents such as Claude Code and Codex. It locks your tests, runs the checks in a sandbox and gives a verdict with signed evidence. The agent never grades its own work.
 
 ## Status
 

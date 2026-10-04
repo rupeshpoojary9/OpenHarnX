@@ -1,4 +1,4 @@
-"""OpenHarnX: plans, staffs, controls and verifies work done by coding agents."""
+"""OpenHarnX: verifies work done by coding agents."""
 
 from importlib.metadata import PackageNotFoundError, version
 

@@ -280,7 +280,7 @@ def _cmd_bug_fix(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ohx",
-        description="OpenHarnX: plans, staffs, controls and verifies work done by coding agents.",
+        description="OpenHarnX: verifies work done by coding agents.",
     )
     parser.add_argument("--version", action="version", version=f"ohx {__version__}")
     sub = parser.add_subparsers(dest="command", metavar="<command>")
