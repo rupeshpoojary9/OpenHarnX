@@ -43,13 +43,16 @@ uv sync                 # create the environment from uv.lock
 uv run ohx doctor       # check the local environment
 ```
 
-Install the command for local use, and remove it again:
+Install a release (pinned; see [docs/releasing.md](docs/releasing.md)), or the command from a clone for local use, and remove it again:
 
 ```bash
-uv tool install .
+uv tool install git+https://github.com/rupeshpoojary9/OpenHarnX@v0.1.0   # once v0.1.0 is released
+uv tool install .                                                        # from a clone
 ohx --version
 uv tool uninstall openharnx
 ```
+
+Security reports: see [SECURITY.md](SECURITY.md).
 
 ## Exit codes
 
