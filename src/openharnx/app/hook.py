@@ -3,14 +3,18 @@
 `install` adds the hook to the project's `.claude/settings.local.json`, the owner's own
 settings, keeping everything else there. `claude_stop` reads the hook event, verifies,
 and tells Claude Code whether the agent may stop. A BLOCKED reason goes back to the
-agent; after `MAX_BLOCKS` blocked attempts in a row in one session the agent may stop
-and the owner gets the message instead, so an agent that cannot fix it is not trapped.
+agent, as hook feedback where Claude Code supports it (a plain block is shown to the
+user as a hook error); after `MAX_BLOCKS` blocked attempts in a row in one session the
+agent may stop and the owner gets the message instead, so an agent that cannot fix it
+is not trapped.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -20,11 +24,14 @@ from openharnx.workspace import NotARepository, repo_root
 
 SETTINGS = Path(".claude") / "settings.local.json"
 HOOK_ARGS = ["hook", "claude-stop"]
-# Claude Code gives a Stop hook 30 seconds unless the hook sets its own limit.
+# Above Claude Code's 600-second default for command hooks (hooks reference, 2026-10-04),
+# so a long verification is not cut off.
 TIMEOUT_S = 900
 MAX_BLOCKS = 3
 STATE = "claude-stop.json"
 SHOWN = 8  # failing checks listed in the reason
+# First Claude Code to accept `additionalContext` from a Stop hook (its changelog, 2.1.163).
+FEEDBACK_SINCE = (2, 1, 163)
 
 
 def _command() -> str:
@@ -80,6 +87,27 @@ def _reason(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _claude_version() -> tuple[int, int, int] | None:
+    """The version of the `claude` on PATH, or None when it cannot be told."""
+    found = shutil.which("claude")
+    if found is None:
+        return None
+    try:
+        out = subprocess.run([found, "--version"], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.match(r"\s*(\d+)\.(\d+)\.(\d+)", out.stdout)
+    return (int(m[1]), int(m[2]), int(m[3])) if m else None
+
+
+def _send_back(reason: str) -> dict[str, Any]:
+    """Keep the agent working: as feedback where supported, else as a block, never neither."""
+    version = _claude_version()
+    if version is not None and version >= FEEDBACK_SINCE:
+        return {"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": reason}}
+    return {"decision": "block", "reason": reason}
+
+
 def _attempts(pdir: Path, session: str, active: bool) -> int:
     """Blocked attempts so far in this session's current run of stops."""
     try:
@@ -131,7 +159,7 @@ def claude_stop(stdin: str, cwd: Path, sandbox: str = "auto") -> dict[str, Any]:
             f" {MAX_BLOCKS} attempts; the agent stopped. Report: {run_dir / 'report.md'}"
         }
     _record(pdir, session, blocked + 1)
-    return {"decision": "block", "reason": _reason(report)}
+    return _send_back(_reason(report))
 
 
 def main_stop(sandbox: str) -> dict[str, Any]:

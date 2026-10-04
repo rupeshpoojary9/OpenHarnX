@@ -6,15 +6,22 @@ once). When the agent says it is done, Claude Code runs `ohx hook claude-stop`: 
 verifies the change, lets the agent stop on READY, and otherwise blocks the stop with a
 reason the agent reads: what failed, and that the tests are locked, so the fix belongs
 in the code. After three blocked attempts in a row it lets the agent stop and leaves
-the owner a message, so an agent that cannot fix it is never trapped. Claude Code gives a
-Stop hook 30 seconds unless the hook says otherwise, so the installed hook sets its own
-time limit.
+the owner a message, so an agent that cannot fix it is never trapped. The installed hook
+sets its own time limit, so a long verification is never cut off.
+
+Revised 2026-10-04 (contracts/0039): Claude Code shows `decision: "block"` as a hook
+error; from 2.1.163 a Stop hook can send `hookSpecificOutput.additionalContext`
+instead, shown as hook feedback, with the same loop protections. The hook uses it when
+`claude --version` says it is supported, and blocks as before otherwise (older or
+unknown versions), so a version that would ignore the feedback never lets a BLOCKED
+change through.
 """
 
 from __future__ import annotations
 
 import io
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -46,6 +53,30 @@ def _git(repo: Path, *args: str) -> None:
     )
 
 
+def _fake_claude(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, version: str | None) -> None:
+    """Put a stand-in `claude` that prints `version` first on PATH (None: no claude)."""
+    bindir = tmp_path / "fake-bin"
+    bindir.mkdir(exist_ok=True)
+    claude = bindir / "claude"
+    if version is None:
+        claude.unlink(missing_ok=True)
+        monkeypatch.setenv("PATH", str(bindir) + os.pathsep + "/usr/bin" + os.pathsep + "/bin")
+        return
+    claude.write_text(f"#!/bin/sh\necho '{version} (Claude Code)'\n")
+    claude.chmod(0o755)
+    monkeypatch.setenv("PATH", str(bindir) + os.pathsep + os.environ["PATH"])
+
+
+def _sent_back(out: dict[str, Any]) -> str | None:
+    """The reason the agent was sent back with, in either form; None if it may stop."""
+    if out.get("decision") == "block":
+        return str(out["reason"])
+    feedback = out.get("hookSpecificOutput", {})
+    if feedback.get("hookEventName") == "Stop" and feedback.get("additionalContext"):
+        return str(feedback["additionalContext"])
+    return None
+
+
 @pytest.fixture
 def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     repo = tmp_path / "proj"
@@ -58,6 +89,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     _git(repo, "commit", "-qm", "base")
     monkeypatch.setenv("OHX_HOME", str(tmp_path / "home"))
     monkeypatch.chdir(repo)
+    _fake_claude(tmp_path, monkeypatch, "2.1.281")
     return repo
 
 
@@ -93,7 +125,7 @@ def test_one_command_installs_the_stop_hook_with_its_own_time_limit(repo: Path) 
     assert len(commands) == 1
     assert commands[0]["type"] == "command"
     assert commands[0]["command"].endswith("hook claude-stop")
-    assert commands[0]["timeout"] >= 300  # Claude Code's default for Stop is 30 seconds
+    assert commands[0]["timeout"] >= 600  # at least Claude Code's own default for command hooks
 
 
 def test_installing_keeps_other_settings_and_adds_the_hook_once(repo: Path) -> None:
@@ -123,7 +155,7 @@ def test_a_ready_change_lets_the_agent_stop(
     (repo / "calc.py").write_text(CALC + "\n\ndef sub(a, b):\n    return a - b\n")
     code, out = _stop(monkeypatch, capsys, repo)
     assert code == EXIT_OK
-    assert out.get("decision") != "block"
+    assert out == {}  # nothing to say: the agent stops
 
 
 def test_an_agent_that_edits_a_test_to_get_green_is_sent_back(
@@ -134,8 +166,8 @@ def test_an_agent_that_edits_a_test_to_get_green_is_sent_back(
     (repo / "tests" / "test_calc.py").write_text(SUITE.replace("== 6", "== 7"))
     code, out = _stop(monkeypatch, capsys, repo)
     assert code == EXIT_OK
-    assert out["decision"] == "block"
-    reason = out["reason"]
+    reason = _sent_back(out)
+    assert reason is not None
     assert "BLOCKED" in reason
     assert "test_mul" in reason  # what failed
     assert "locked" in reason  # and why editing the test does not help
@@ -149,13 +181,12 @@ def test_after_three_blocked_attempts_the_agent_may_stop_and_the_owner_is_told(
     decisions = []
     for attempt in range(4):
         _, out = _stop(monkeypatch, capsys, repo, active=attempt > 0)
-        decisions.append(out.get("decision"))
-    assert decisions[:3] == ["block", "block", "block"]
-    assert decisions[3] != "block"
+        decisions.append(_sent_back(out) is not None)
+    assert decisions == [True, True, True, False]
     assert "BLOCKED" in out["systemMessage"]
     # A new session starts counting again.
     _, out = _stop(monkeypatch, capsys, repo, session="s2")
-    assert out.get("decision") == "block"
+    assert _sent_back(out) is not None
 
 
 def test_without_a_contract_the_hook_does_not_block_and_says_how_to_start(
@@ -163,7 +194,7 @@ def test_without_a_contract_the_hook_does_not_block_and_says_how_to_start(
 ) -> None:
     code, out = _stop(monkeypatch, capsys, repo)
     assert code == EXIT_OK
-    assert out.get("decision") != "block"
+    assert _sent_back(out) is None
     assert "ohx init --lock-tests" in out.get("systemMessage", "")
 
 
@@ -173,7 +204,7 @@ def test_unreadable_hook_input_does_not_crash(
     assert main(["init", "--lock-tests", "--sandbox", "none"]) == EXIT_OK
     code, out = _stop(monkeypatch, capsys, repo, raw="not json")
     assert code == EXIT_OK
-    assert out.get("decision") != "block"
+    assert _sent_back(out) is None
 
 
 def test_the_shared_claude_settings_are_checker_configuration(tmp_path: Path) -> None:
@@ -186,3 +217,32 @@ def test_the_shared_claude_settings_are_checker_configuration(tmp_path: Path) ->
     settings.write_text("{}")  # the hook removed
     found = compare(baseline, snapshot(tmp_path, [".claude/settings.json"]))
     assert found == [".claude/settings.json: check configuration changed since acceptance"]
+
+
+def _cheat(repo: Path) -> None:
+    (repo / "calc.py").write_text(CALC.replace("a * b", "a * b + 1"))
+    (repo / "tests" / "test_calc.py").write_text(SUITE.replace("== 6", "== 7"))
+
+
+def test_blocked_goes_back_as_feedback_not_an_error_on_claude_code_that_supports_it(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["init", "--lock-tests", "--sandbox", "none"]) == EXIT_OK
+    _cheat(repo)
+    _fake_claude(tmp_path, monkeypatch, "2.1.163")
+    _, out = _stop(monkeypatch, capsys, repo)
+    assert "decision" not in out  # Claude Code would label a block a hook error
+    assert out["hookSpecificOutput"]["hookEventName"] == "Stop"
+    assert "test_mul" in out["hookSpecificOutput"]["additionalContext"]
+
+
+def test_older_or_unknown_claude_code_is_still_blocked(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["init", "--lock-tests", "--sandbox", "none"]) == EXIT_OK
+    _cheat(repo)
+    for version in ("2.1.162", "not a version", None):
+        _fake_claude(tmp_path, monkeypatch, version)
+        _, out = _stop(monkeypatch, capsys, repo, session=f"s-{version}")
+        assert out.get("decision") == "block", version
+        assert "test_mul" in out["reason"]
