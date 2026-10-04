@@ -12,6 +12,7 @@ suite that was already failing cannot be compared: unknown, never a pass.
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import xml.etree.ElementTree as ET
@@ -195,3 +196,49 @@ def compare(base: dict[str, Any], outcome: str, tests: dict[str, str] | None) ->
         "cannot compare: the suite was already failing at acceptance"
         " and per-test results are not available"
     )
+
+
+def _test_node(root: Path, test_id: str) -> tuple[Path, str | None] | None:
+    """Where a pytest test lives under `root` and its source, normalized (no positions or
+    formatting); None for the source when the file is there and the test is not. None
+    overall when `root` has no file for this id."""
+    classname, _, name = test_id.partition("::")
+    name = name.split("[", 1)[0]
+    parts = [p for p in classname.split(".") if p]
+    for start in (0, 1):  # ids may or may not start with the folder's own name
+        for end in range(len(parts), start, -1):
+            path = root.joinpath(*parts[start:end]).with_suffix(".py")
+            if not path.is_file():
+                continue
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, SyntaxError, ValueError):
+                return path.relative_to(root), None
+            body: list[ast.stmt] = tree.body
+            for cls in parts[end:]:
+                found = [n for n in body if isinstance(n, ast.ClassDef) and n.name == cls]
+                if not found:
+                    return path.relative_to(root), None
+                body = found[0].body
+            for node in body:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+                    return path.relative_to(root), ast.dump(node)
+            return path.relative_to(root), None
+    return None
+
+
+def edited_tests(locked: Path, working: Path, test_ids: list[str]) -> list[str]:
+    """Tests from `test_ids` whose source in `working` differs from the locked copy, or
+    is gone (impossible-tasks replay, 2026-10-04). Python only; ids the locked copy
+    cannot place are skipped."""
+    found = []
+    for test_id in sorted(test_ids):
+        was = _test_node(locked, test_id)
+        if was is None or was[1] is None:
+            continue
+        now = _test_node(working, test_id)
+        if now is None or now[1] is None:
+            found.append(f"{test_id} was failing when locked and has been removed")
+        elif now[1] != was[1]:
+            found.append(f"{test_id} was failing when locked and has been changed")
+    return found

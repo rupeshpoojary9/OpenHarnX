@@ -23,7 +23,7 @@ from openharnx.mutation import PROBE_ENV, Mutant, changed_lines
 from openharnx.mutation import select as select_mutants
 from openharnx.regression import baseline as regression_baseline
 from openharnx.regression import compare as compare_regression
-from openharnx.regression import junit_env, read_go_results, read_results
+from openharnx.regression import edited_tests, junit_env, read_go_results, read_results
 from openharnx.report import READINESS, render_markdown
 from openharnx.sandbox import find_srt
 from openharnx.signing import (
@@ -341,6 +341,7 @@ WEAKENING_OBLIGATION: dict[str, Any] = {
 }
 
 NO_NEW_FAILURES = "no-new-failures"
+LISTED_EDITED = 10
 
 MUTATION = "mutation"
 # Added at acceptance to contracts with acceptance tests (T87 item 5). Advisory: it names
@@ -706,6 +707,8 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                     outcome, note = "unavailable", f"the {ob['of']!r} suite did not run"
                 else:
                     outcome, note = compare_regression(baselines[ob["of"]], *ran)
+                    if outcome == "pass":
+                        outcome, note = _edited_failing(contract.body, ob["of"], pdir, root, note)
                 out, ms, exit_code, argv = note.encode(), 0, None, ob["command"]
             elif env_note:
                 outcome, exit_code, out, ms, argv = env_outcome, None, b"", 0, ob["command"]
@@ -857,6 +860,28 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
         return rec, run_dir
     finally:
         store.close()
+
+
+def _edited_failing(
+    body: dict[str, Any], of: str, pdir: Path, root: Path, note: str
+) -> tuple[str, str]:
+    """A locked suite's tests that were failing when locked must not be edited or removed:
+    the locked copy still fails "as before", so no regression shows (replay, 2026-10-04)."""
+    suite = next((o for o in body["obligations"] if o["id"] == of), None)
+    if suite is None or "protected_store_path" not in suite or not suite.get("protected_at"):
+        return "pass", note
+    before = (body.get("regression_baseline", {}).get(of) or {}).get("tests") or {}
+    failing = [t for t, o in before.items() if o == "fail"]
+    found = edited_tests(
+        pdir / suite["protected_store_path"], root / suite["protected_at"], failing
+    )
+    if not found:
+        return "pass", note
+    shown = "; ".join(found[:LISTED_EDITED])
+    return "fail", (
+        f"{shown}. Fix the code so the locked test passes; if the test itself was wrong,"
+        " lock the tests again (ohx init --lock-tests) or accept a contract revision"
+    )
 
 
 def _mutation_check(
