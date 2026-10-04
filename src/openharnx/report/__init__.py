@@ -46,6 +46,11 @@ def _approval_line(report: dict[str, Any]) -> list[str]:
         return []
     if "refused" in approval:
         return [f"- Test changes: not approved ({approval['refused']})"]
+    if approval.get("method") == "signature":
+        return [
+            f"- Test changes: approved by {approval['by']} with an SSH signature"
+            f" (key {approval['key']}), for commit `{approval['head'][:12]}`"
+        ]
     return [
         f"- Test changes: approved by @{approval['by']} with the `{approval['label']}` label"
         f" at {approval['at']}, for commit `{approval['head'][:12]}`"

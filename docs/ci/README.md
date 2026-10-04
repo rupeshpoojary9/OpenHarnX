@@ -20,7 +20,7 @@ Both examples run the same block of commands, between `# ohx-gate commands` mark
 
 ## Python projects
 
-The locked run is `pytest` on the base's `tests/`. `pytest_args` in the base's `ohx.toml` adds the project's own options to it and to the default `tests` run, for example `pytest_args = ["-n", "auto"]` to run on every core with pytest-xdist (which must be in the protected environment). Per-test results still decide. A change to `pytest_args`, like any `ohx.toml` change, is caught by the weakening check.
+The locked run is `pytest` on the base's `tests/`. `pytest_args` in the base's `ohx.toml` adds the project's own options to it and to the default `tests` run, for example `pytest_args = ["-n", "auto"]` to run on every core with pytest-xdist (which must be in the protected environment). Per-test results still decide. A change to `pytest_args`, like any `ohx.toml` change, is caught by the weakening check (since baseline version 6; before it, the gate ignored the change's `ohx.toml` without flagging it).
 
 ## TypeScript and JavaScript projects
 
@@ -68,4 +68,24 @@ On GitHub a maintainer approves such a change by adding the `ohx-approve-tests` 
 - whoever added the label last can push to the repository (write or admin);
 - the label was added after the commit being judged was pushed. The gate checks this against GitHub's own record of workflow runs for the pull request, not commit dates, so a push after the label needs the label again (remove it and add it back).
 
-Approved, the base's tests no longer bind. The change's own tests must pass, a test that passed on the base and still exists must still pass, and a new failing test still blocks. Removed tests and weakening findings are listed in the report as approved, with who approved and when. A refused label changes nothing and the report says why. The label is looked up with the job's read-only token, which reaches the gate process only, never the code under review. Other CI systems have no label approval yet: accept a contract revision on the base instead.
+Approved, the base's tests no longer bind. The change's own tests must pass, a test that passed on the base and still exists must still pass, and a new failing test still blocks. Removed tests and weakening findings are listed in the report as approved, with who approved and when. A refused label changes nothing and the report says why. The label is looked up with the job's read-only token, which reaches the gate process only, never the code under review.
+
+## Approving on any platform: a signed approval
+
+Without GitHub (GitLab, Jenkins, a plain git server), or as an alternative to the label, a maintainer signs the approval with their SSH key:
+
+```sh
+git fetch origin && git checkout <the change's head commit>
+ohx approve-tests                          # signs "test changes approved for commit X"
+git push origin refs/notes/ohx-approvals   # the signature travels as a git note
+```
+
+The gate accepts it when the signature verifies for exactly the judged commit and its key is listed in the base's `ohx.toml`:
+
+```toml
+approvers = [
+  "rupesh ssh-ed25519 AAAAC3Nza...",
+]
+```
+
+The list is read from the base only; a change that edits `ohx.toml` (approvers included) is a weakening finding, like any change to check configuration. A new push is a new commit and needs a new approval. Make the job fetch the notes before the gate (`git fetch origin "+refs/notes/ohx-approvals:refs/notes/ohx-approvals"`; the GitHub Action does this), or pass a signature written with `ohx approve-tests --out approval.sig` as `ohx gate --approval-file approval.sig`. Approval signatures use their own namespace, so an evidence signature cannot stand in for one.

@@ -38,6 +38,32 @@ class Approval:
     by: str
     at: str
     head: str
+    method: str = "label"  # or "signature" (T90e)
+    key: str = ""  # the signing key's fingerprint, for a signature
+
+
+def as_dict(approved: Approval) -> dict[str, str]:
+    """How an approval is recorded in the contract and the report."""
+    if approved.method == "signature":
+        return {
+            "method": "signature",
+            "by": approved.by,
+            "key": approved.key,
+            "head": approved.head,
+        }
+    return {
+        "method": "label",
+        "label": approved.label,
+        "by": approved.by,
+        "at": approved.at,
+        "head": approved.head,
+    }
+
+
+def describe(approval: dict[str, str]) -> str:
+    if approval.get("method") == "signature":
+        return f"approved by {approval['by']} (SSH signature, {approval['key']})"
+    return f"approved by @{approval['by']} ({approval['label']} label, {approval['at']})"
 
 
 @dataclass(frozen=True)

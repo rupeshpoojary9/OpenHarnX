@@ -33,6 +33,7 @@ from openharnx.app import (
     verify,
 )
 from openharnx.app import approval as approvals
+from openharnx.app.signed_approval import signed_approval
 from openharnx.report import render_markdown
 from openharnx.store import Record
 from openharnx.weakening import JS_SOURCE, is_test_file
@@ -182,12 +183,7 @@ def _gate_contract(
         if key in defaults:
             raw[key] = defaults[key]
     if approved is not None:
-        raw |= {
-            "approved_label": approved.label,
-            "approved_by": approved.by,
-            "approved_at": approved.at,
-            "approved_head": approved.head,
-        }
+        raw |= {f"approved_{k}": v for k, v in approvals.as_dict(approved).items()}
     raw["obligations"] = obligations
     return raw
 
@@ -285,11 +281,14 @@ def gate(
     contract: str | None = None,
     home: Path | None = None,
     approve_label: str | None = None,
+    approval_file: Path | None = None,
 ) -> dict[str, Any]:
     """Verify the checked-out pull request against `base_ref`; returns the report.
 
     With `approve_label`, the GitHub label a maintainer adds to approve intended test
-    changes is looked up (T90b); a refused approval changes nothing and says why."""
+    changes is looked up (T90b); a refused approval changes nothing and says why. A
+    signature from `ohx approve-tests` (a git note, or `approval_file`) is checked on any
+    platform against the base's approvers (T90e)."""
     try:
         root = repo_root(cwd)
     except NotARepository as exc:
@@ -306,6 +305,9 @@ def gate(
     try:
         base = work / "base"
         _base_copy(root, base_sha, base)
+        signed = signed_approval(root, base, head_sha, approval_file)
+        if signed is not None and (signed.approved or not approved):
+            looked_up, approved = signed, signed.approved
         if contract:
             contract_file = base / contract
             if not contract_file.is_file():
@@ -321,17 +323,11 @@ def gate(
         report["ci"] = {"base_ref": base_ref, "base_commit": base_sha, "head_commit": head_sha}
         if looked_up is not None:
             report["approval"] = (
-                {
-                    "label": approved.label,
-                    "by": approved.by,
-                    "at": approved.at,
-                    "head": approved.head,
-                }
+                approvals.as_dict(approved)
                 if approved and not contract
                 else {
-                    "label": approve_label,
                     "refused": looked_up.refused
-                    or "a contract file was given, so the label does not apply",
+                    or "a contract file was given, so the approval does not apply",
                 }
             )
     finally:

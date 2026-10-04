@@ -73,12 +73,12 @@ def fingerprint(public: str) -> str:
     return parts[1]
 
 
-def sign(message: bytes, key: Path) -> bytes:
+def sign(message: bytes, key: Path, namespace: str = NAMESPACE) -> bytes:
     if not key.is_file():
         raise SigningError(f"signing key not found: {key}")
     try:
         out = subprocess.run(
-            ["ssh-keygen", "-Y", "sign", "-n", NAMESPACE, "-f", str(key)],
+            ["ssh-keygen", "-Y", "sign", "-n", namespace, "-f", str(key)],
             input=message,
             capture_output=True,
             timeout=TIMEOUT_S,
@@ -95,14 +95,14 @@ def sign(message: bytes, key: Path) -> bytes:
     return out.stdout
 
 
-def signer_of(message: bytes, signature: bytes) -> str | None:
+def signer_of(message: bytes, signature: bytes, namespace: str = NAMESPACE) -> str | None:
     """The fingerprint of the key that made a valid signature over `message`; None if invalid."""
     with tempfile.NamedTemporaryFile(suffix=".sig") as fh:
         fh.write(signature)
         fh.flush()
         try:
             out = subprocess.run(
-                ["ssh-keygen", "-Y", "check-novalidate", "-n", NAMESPACE, "-s", fh.name],
+                ["ssh-keygen", "-Y", "check-novalidate", "-n", namespace, "-s", fh.name],
                 input=message,
                 capture_output=True,
                 timeout=TIMEOUT_S,

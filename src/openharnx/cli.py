@@ -31,9 +31,12 @@ from openharnx.app.bug import bug_approve, bug_fix, bug_new, bug_show, describe_
 from openharnx.app.gate import gate, lock_tests
 from openharnx.app.hook import install as hook_install
 from openharnx.app.hook import main_stop as hook_main_stop
+from openharnx.app.signed_approval import NOTES_REF
+from openharnx.app.signed_approval import approve as approve_tests
 from openharnx.app.trace import trace_approve, trace_check, trace_init
 from openharnx.doctor import run_checks
 from openharnx.report import render_markdown
+from openharnx.signing import SigningError
 
 EXIT_OK = 0
 EXIT_INTERNAL = 1
@@ -205,10 +208,23 @@ def _cmd_gate(args: argparse.Namespace) -> int:
         contract=args.contract,
         home=Path(args.home) if args.home else None,
         approve_label=args.approve_tests_label or None,
+        approval_file=Path(args.approval_file) if args.approval_file else None,
     )
     print(render_markdown(report))
     print(f"Saved to {Path(args.out).resolve()}")
     return EXIT_OK if report["readiness"] == "ready" else EXIT_BLOCKED
+
+
+def _cmd_approve_tests(args: argparse.Namespace) -> int:
+    try:
+        commit, where = approve_tests(Path.cwd(), args.rev, Path(args.out) if args.out else None)
+    except SigningError as exc:
+        print(f"ohx: cannot approve: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    print(f"approved the test changes of commit {commit[:12]}; signature in {where}")
+    if not args.out:
+        print(f"share it with: git push origin {NOTES_REF}")
+    return EXIT_OK
 
 
 def _cmd_audit(args: argparse.Namespace) -> int:
@@ -345,6 +361,12 @@ def build_parser() -> argparse.ArgumentParser:
     ver.add_argument("--json", action="store_true")
     ver.set_defaults(func=_cmd_verify)
 
+    apt = sub.add_parser(
+        "approve-tests", help="sign an approval of a commit's intended test changes (any platform)"
+    )
+    apt.add_argument("rev", nargs="?", default="HEAD", help="the commit to approve (default HEAD)")
+    apt.add_argument("--out", help="write the signature to this file instead of a git note")
+    apt.set_defaults(func=_cmd_approve_tests)
     gat = sub.add_parser("gate", help="CI: judge the checked-out change against its base commit")
     gat.add_argument("--base", required=True, help="base commit or ref (the trusted side)")
     gat.add_argument("--sandbox", choices=["auto", "srt", "none"], default="auto")
@@ -354,6 +376,9 @@ def build_parser() -> argparse.ArgumentParser:
     gat.add_argument(
         "--approve-tests-label",
         help="GitHub label with which a maintainer approves the pull request's test changes",
+    )
+    gat.add_argument(
+        "--approval-file", help="a signature from `ohx approve-tests --out`, instead of git notes"
     )
     gat.set_defaults(func=_cmd_gate)
 

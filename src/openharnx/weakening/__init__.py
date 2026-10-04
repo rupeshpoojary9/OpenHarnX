@@ -20,7 +20,7 @@ recognised, every suppression counts. Skips count only when unconditional: a `sk
 with a condition, a skip inside an `if` or `except`, or `importorskip` skip nothing on
 the platform where they matter, and skipping a test that passed is caught by the
 no-new-failures check. Baselines made before this (version 4) counted every skip, so
-they are compared with the old count.
+they are compared with the old count. `ohx.toml` is configuration from version 6.
 
 Source checks (impossible-tasks replay, 2026-10-04): code outside the tests can also lower
 the bar. In Python files that are not tests, a new patch of an imported module (the code
@@ -40,7 +40,7 @@ import tomllib
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-BASELINE_VERSION = 5
+BASELINE_VERSION = 6
 
 # Files that configure checkers, wherever they are (ruff and pytest read nested ones).
 CONFIG_NAMES = frozenset(
@@ -57,6 +57,9 @@ CONFIG_NAMES = frozenset(
         ".coveragerc",
         ".importlinter",
         "pyrightconfig.json",
+        # OpenHarnX's own policy: checks, interpreter, approvers (T90e). A pull request's
+        # copy is never read by its own gate, but it would bind every later one.
+        "ohx.toml",
         # Code that runs inside the checker or at interpreter start-up.
         "conftest.py",
         "sitecustomize.py",
@@ -535,6 +538,9 @@ def _as_version(snap: dict[str, Any], version: int) -> dict[str, Any]:
         return True
 
     suppressions = {k: v for k, v in snap["suppressions"].items() if known(k)}
+    config = {k: v for k, v in snap["config"].items() if known(k, config=True)}
+    if version < 6:  # ohx.toml was not configuration yet
+        config = {k: v for k, v in config.items() if PurePosixPath(k).name != "ohx.toml"}
     if version < 4:
         suppressions = {
             k: {kind: n for kind, n in v.items() if kind not in SOURCE_CHECKS}
@@ -554,7 +560,7 @@ def _as_version(snap: dict[str, Any], version: int) -> dict[str, Any]:
                 suppressions[k] = {SKIP: n}
     return {
         **snap,
-        "config": {k: v for k, v in snap["config"].items() if known(k, config=True)},
+        "config": config,
         "suppressions": suppressions,
         "tests": {k: v for k, v in snap["tests"].items() if known(k)},
     }

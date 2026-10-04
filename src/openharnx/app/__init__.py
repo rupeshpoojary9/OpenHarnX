@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from openharnx.app.approval import describe as describe_approval
 from openharnx.environment import LOCKFILES, EnvironmentUnavailable, ensure, ensure_npm
 from openharnx.kernel.canonical import digest
 from openharnx.kernel.contract import validate_contract
@@ -187,7 +188,13 @@ def accept_contract(
             ),
             **({"regression_baseline": baselines} if baselines else {}),
             **(
-                {"approval": {k: raw[f"approved_{k}"] for k in ("label", "by", "at", "head")}}
+                {
+                    "approval": {
+                        k.removeprefix("approved_"): v
+                        for k, v in raw.items()
+                        if k.startswith("approved_")
+                    }
+                }
                 if raw.get("approved_by")
                 else {}
             ),
@@ -916,7 +923,7 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
 
 
 def _approved(approval: dict[str, str]) -> str:
-    return f"approved by @{approval['by']} ({approval['label']} label, {approval['at']})"
+    return describe_approval(approval)
 
 
 def _order_check(

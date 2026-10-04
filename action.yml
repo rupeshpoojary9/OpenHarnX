@@ -77,6 +77,8 @@ runs:
         export PATH="$RUNNER_TEMP/ohx/bin:$PATH"
         base="$OHX_BASE"
         git rev-parse --verify -q "$base^{commit}" >/dev/null || { git fetch --no-tags origin "$base"; base=FETCH_HEAD; }
+        # Signed approvals of test changes travel as git notes (T90e); none is fine.
+        git fetch -q --no-tags origin "+refs/notes/ohx-approvals:refs/notes/ohx-approvals" 2>/dev/null || true
         set +e
         # The token stays with the gate: checkers get an explicit environment allowlist.
         "$RUNNER_TEMP/ohx/bin/ohx" gate --base "$base" --sandbox "$OHX_SANDBOX" --out "$OHX_OUT" \
