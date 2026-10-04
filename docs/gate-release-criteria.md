@@ -7,7 +7,7 @@ Out of scope for this release: `ohx bug` (agent-driven fixes), `ohx trace` (requ
 ## Release decision
 
 **Releasable now: no**
-Blocking: RC-16, RC-17, RC-24, RC-25.
+Blocking: RC-17, RC-24, RC-25.
 
 ## Supported environment
 
@@ -52,7 +52,7 @@ Every negative control is paired with a positive one, so a gate that blocks ever
 | RC-13 | Positive controls: a genuine fix is READY, including next to an unrelated failure that was already there, and adding new tests needs no approval | required | met | `tests/test_skeleton_e2e.py::test_report_is_ready_when_nothing_changed`, `tests/test_regression_baseline.py::test_fix_with_a_failure_that_was_already_there_is_ready`, `tests/test_weakening.py::test_control_a_new_test_file_needs_no_approval` | |
 | RC-14 | Negative controls, weakening: new suppressions or skip markers, loosened configuration, removed assertions, deleted tests, a conftest or addopts that changes results are blocked | required | met | `tests/test_weakening.py::test_new_skip_marker_is_blocked`, `tests/test_weakening.py::test_loosened_lint_config_is_blocked`, `tests/test_weakening.py::test_removed_assertions_are_blocked`, `tests/test_weakening.py::test_deleted_test_file_is_blocked`, `tests/test_weakening.py::test_new_conftest_that_forces_passes_is_blocked`, `tests/test_weakening.py::test_pytest_addopts_that_deselects_tests_is_blocked` | |
 | RC-15 | Negative controls, collateral damage: a change that breaks a test that passed at acceptance, or stops it running, is blocked | required | met | `tests/test_regression_baseline.py::test_fix_that_breaks_another_test_is_blocked`, `tests/test_regression_baseline.py::test_test_that_no_longer_runs_is_blocked` | |
-| RC-16 | A reproducible cheat demo: an agent weakens a test and claims success, the gate blocks it, the real fix passes | required | not met | | T81 |
+| RC-16 | A reproducible cheat demo: an agent weakens a test and claims success, the gate blocks it, the real fix passes | required | met | `tests/test_cheat_demo.py::test_the_demo_shows_green_tests_blocked_and_the_real_fix_ready`, `tests/test_cheat_demo.py::test_the_demo_fails_when_a_verdict_is_not_what_it_shows` (`examples/cheat-demo/`, scripted with no model; run under srt 2026-10-04: plain pytest 3 passed, 1 skipped, BLOCKED naming both edited tests and the skip, the genuine change READY) | |
 
 ## Stale and corrupt evidence
 
@@ -92,4 +92,4 @@ Stated in the README and here; a project outside this list gets no claim of prot
 | RC-26 | TypeScript and Go projects (Vitest, Jest, Playwright, go test) and their weakening patterns | later | not met | | T82 |
 | RC-27 | Windows, and Linux outside CI | later | not met | | T79, T82 |
 | RC-28 | Verification fast enough for many agent loops a day | later | not met | | T80 |
-| RC-29 | Mutation checks that the locked tests catch plausible wrong fixes | later | not met | | T87 |
+| RC-29 | Mutation checks that the locked tests catch plausible wrong fixes | later | met | `tests/test_mutation.py::test_weak_tests_let_a_wrong_fix_survive_and_the_verdict_is_unchanged`, `tests/test_mutation.py::test_strong_tests_kill_every_mutant` (advisory: survivors are reported, the verdict is unchanged) | |

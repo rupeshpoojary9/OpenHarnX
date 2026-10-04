@@ -12,6 +12,14 @@ READINESS = {
 }
 
 
+def _reasons(reasons: list[str]) -> str:
+    """Reasons joined for reading; a checker's note (": ...") follows its reason directly."""
+    text = ""
+    for r in reasons:
+        text += r if not text or r.startswith(": ") else f"; {r}"
+    return text or "none"
+
+
 def _ci_line(report: dict[str, Any]) -> list[str]:
     ci = report.get("ci")
     if not ci:
@@ -68,7 +76,7 @@ def render_markdown(report: dict[str, Any]) -> str:
     ]
     order = {"fail": 0, "unknown": 1, "pass": 2}
     for ob in sorted(gate["obligations"], key=lambda o: order[o["status"]]):
-        reasons = "; ".join(ob["reasons"]) or "none"
+        reasons = _reasons(ob["reasons"])
         mandatory = "yes" if ob["mandatory"] else "no"
         lines.append(f"| {ob['obligation_id']} | {mandatory} | {ob['status']} | {reasons} |")
     if cand["changed_during_verification"]:
