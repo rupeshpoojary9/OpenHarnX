@@ -47,6 +47,7 @@ from openharnx.signing import (
 from openharnx.signing import message as signed_message
 from openharnx.store import Record, Store
 from openharnx.verify import run_obligation
+from openharnx.verify.where import foreign_code, project_files, where_env
 from openharnx.weakening import JS_SOURCE, active_checkers, is_test_file
 from openharnx.weakening import compare as compare_weakening
 from openharnx.weakening import snapshot as weakening_snapshot
@@ -702,6 +703,8 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
         approval: dict[str, str] | None = contract.body.get("approval")
         regression_runs: dict[str, tuple[str, dict[str, str] | None]] = {}
         order_runs: dict[str, list[str]] = {}
+        wrong_code: dict[str, str] = {}  # obligation id: why it ran other code (T90c)
+        project_modules = project_files(_files(before))
 
         observations: list[Observation] = []
         raw_obs: list[dict[str, Any]] = []
@@ -738,7 +741,10 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                 exit_code, argv = None, ob["command"]
             elif ob.get("builtin") == NO_NEW_FAILURES:
                 ran = regression_runs.get(ob["of"])
-                if ran is None:
+                if ob["of"] in wrong_code:
+                    outcome = "invalid"
+                    note = f"the {ob['of']!r} suite cannot be compared: {wrong_code[ob['of']]}"
+                elif ran is None:
                     outcome, note = "unavailable", f"the {ob['of']!r} suite did not run"
                 else:
                     outcome, note = compare_regression(
@@ -804,6 +810,11 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                         }
                     )
                     continue
+                extra = junit_env(junit) if ob["id"] in baselines else None
+                where_dir = None
+                if project_modules and any("pytest" in str(a) for a in ob["command"]):
+                    where_dir = run_dir / "tmp" / f"where-{ob['id']}"
+                    extra = _with_where(ob, extra, where_dir, project_modules)
                 r = run_obligation(
                     ob,
                     candidate=where,
@@ -812,9 +823,17 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                     srt=srt,
                     deny_read=deny_read,
                     python=python,
-                    extra_env=junit_env(junit) if ob["id"] in baselines else None,
+                    extra_env=extra,
                 )
-                if ob["id"] in baselines:
+                foreign = foreign_code(where_dir, project_modules, root, where) if where_dir else []
+                if foreign:
+                    wrong_code[ob["id"]] = (
+                        f"the check ran other code than the candidate's: "
+                        f"{'; '.join(foreign[:LISTED_EDITED])}. The checker environment holds"
+                        " another copy of the project (an editable or stale install); build it"
+                        " without the project, or from this candidate"
+                    )
+                if ob["id"] in baselines and not foreign:
                     regression_runs[ob["id"]] = (
                         r.outcome,
                         read_results(junit, where) or read_go_results(r.output),
@@ -841,6 +860,8 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                     not_started += 1
                     note = "the srt sandbox did not start the checker"
                     ob_protection = "not enforced: the srt sandbox did not start this checker"
+                if foreign:
+                    outcome, note = "invalid", wrong_code[ob["id"]]
             raw_obs.append(
                 {
                     "obligation_id": ob["id"],
@@ -924,6 +945,18 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
         return rec, run_dir
     finally:
         store.close()
+
+
+def _with_where(
+    ob: dict[str, Any], extra: dict[str, str] | None, folder: Path, modules: dict[str, str]
+) -> dict[str, str]:
+    """Add the plugin that records where the project's modules ran from (T90c), keeping
+    the obligation's own PYTEST_ADDOPTS and PYTHONPATH."""
+    env = ob.get("env", {})
+    where = where_env(folder, sorted(modules), env.get("PYTHONPATH", ""))
+    theirs = (extra or {}).get("PYTEST_ADDOPTS") or env.get("PYTEST_ADDOPTS", "")
+    addopts = f"{where['PYTEST_ADDOPTS']} {theirs}".strip()
+    return {**(extra or {}), **where, "PYTEST_ADDOPTS": addopts}
 
 
 def _claims(
