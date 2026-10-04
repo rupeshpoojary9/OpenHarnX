@@ -10,6 +10,39 @@ READINESS = {
     "unknown": "unknown",
     "invalid_manifest": "invalid",
 }
+# Every mandatory check passed but no acceptance check was agreed (T91): nothing that
+# passed before broke, and whether the task is done is not known.
+NO_REGRESSIONS = "no-regressions"
+PASSING = frozenset({"ready", NO_REGRESSIONS})
+LISTED_STILL_FAILING = 10
+
+
+def verdict(readiness: str) -> str:
+    """The verdict as people read it: READY, NO REGRESSIONS, BLOCKED and so on."""
+    return readiness.upper().replace("-", " ")
+
+
+def _claims_lines(report: dict[str, Any]) -> list[str]:
+    claims = report.get("claims")
+    if not claims:
+        return []
+    regress = {True: "yes, every test that passed before still passes", False: "no"}.get(
+        claims["no_regressions"], "not known"
+    )
+    acceptance = {
+        "met": "met",
+        "not met": "not met",
+        "none defined": "none: no acceptance tests were agreed, so this does not show that"
+        " the task is done; add them with `ohx contract new --acceptance`",
+    }[claims["acceptance"]]
+    lines = ["## What this verdict supports", "", f"- No regressions: {regress}"]
+    lines.append(f"- Acceptance criteria: {acceptance}")
+    still = claims["still_failing"]
+    if still:
+        shown = ", ".join(still[:LISTED_STILL_FAILING])
+        more = f" and {len(still) - LISTED_STILL_FAILING} more" if len(still) > 10 else ""
+        lines.append(f"- Still failing, as before this change: {len(still)} test(s): {shown}{more}")
+    return [*lines, ""]
 
 
 def _reasons(reasons: list[str]) -> str:
@@ -60,7 +93,7 @@ def _approval_line(report: dict[str, Any]) -> list[str]:
 def render_markdown(report: dict[str, Any]) -> str:
     gate = report["gate"]
     cand = report["candidate"]
-    lines = [f"# OpenHarnX report: {report['readiness'].upper()}", ""]
+    lines = [f"# OpenHarnX report: {verdict(report['readiness'])}", ""]
     if report.get("integrity_problems"):
         lines += [
             f"This report was {report['verified_readiness']}, but its evidence no longer"
@@ -87,6 +120,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Verifier protection: {report['protection']['verifier']}",
         *_signature_line(report),
         "",
+        *_claims_lines(report),
         "## Obligations",
         "",
         "| Obligation | Mandatory | Status | Reasons |",

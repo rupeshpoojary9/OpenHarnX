@@ -72,7 +72,7 @@ def _verify(ohx: list[str], shop: Path, env: dict[str, str], sandbox: str, want:
     keep = ("# OpenHarnX report", "| fail |", "| unknown |", "Saved to", "ohx: ")
     _show("\n".join(x for x in (r.stdout + r.stderr).splitlines() if any(k in x for k in keep)))
     if r.returncode != want:
-        name = "READY" if want == EXIT_READY else "BLOCKED"
+        name = "a pass" if want == EXIT_READY else "BLOCKED"
         raise DemoFailed(f"expected {name} (exit {want}), got exit {r.returncode}")
 
 

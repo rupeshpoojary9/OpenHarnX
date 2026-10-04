@@ -148,14 +148,15 @@ def test_installing_keeps_other_settings_and_adds_the_hook_once(repo: Path) -> N
     assert sum(c.endswith("hook claude-stop") for c in commands) == 1
 
 
-def test_a_ready_change_lets_the_agent_stop(
+def test_a_passing_change_lets_the_agent_stop(
     repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert main(["init", "--lock-tests", "--sandbox", "none"]) == EXIT_OK
     (repo / "calc.py").write_text(CALC + "\n\ndef sub(a, b):\n    return a - b\n")
     code, out = _stop(monkeypatch, capsys, repo)
     assert code == EXIT_OK
-    assert out == {}  # nothing to say: the agent stops
+    assert "decision" not in out and "hookSpecificOutput" not in out  # the agent stops
+    assert "NO REGRESSIONS" in out["systemMessage"]  # and the user learns what it means (T91)
 
 
 def test_an_agent_that_edits_a_test_to_get_green_is_sent_back(

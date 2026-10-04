@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from openharnx.app import _open
+from openharnx.report import verdict
 from openharnx.store import Record, Store
 from openharnx.workspace import changed_paths
 
@@ -138,7 +139,7 @@ def audit_trail(cwd: Path) -> list[str]:
                     f" key {rec.body.get('fingerprint')}"
                 )
             elif kind == "assurance_report":
-                lines.append(f"{when}  verdict  {str(rec.body.get('readiness')).upper()}")
+                lines.append(f"{when}  verdict  {verdict(str(rec.body.get('readiness')))}")
         return lines
     finally:
         store.close()

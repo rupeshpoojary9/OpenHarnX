@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from openharnx.app import UsageError, _open, verify
+from openharnx.report import NO_REGRESSIONS, PASSING, verdict
 from openharnx.workspace import NotARepository, repo_root
 
 SETTINGS = Path(".claude") / "settings.local.json"
@@ -75,7 +76,7 @@ def install(cwd: Path) -> Path:
 def _reason(report: dict[str, Any]) -> str:
     notes = {o["obligation_id"]: o.get("note", "") for o in report.get("observations", [])}
     failing = [o for o in report["gate"]["obligations"] if o["status"] != "pass" and o["mandatory"]]
-    lines = [f"OpenHarnX: {report['readiness'].upper()}. These checks did not pass:"]
+    lines = [f"OpenHarnX: {verdict(report['readiness'])}. These checks did not pass:"]
     for o in failing[:SHOWN]:
         detail = notes.get(o["obligation_id"]) or ", ".join(o["reasons"])
         lines.append(f"- {o['obligation_id']}: {detail[:400]}")
@@ -149,13 +150,20 @@ def claude_stop(stdin: str, cwd: Path, sandbox: str = "auto") -> dict[str, Any]:
     blocked = _attempts(pdir, session, bool(event.get("stop_hook_active")))
     record, run_dir = verify(where, sandbox=sandbox)
     report = record.body
-    if report["readiness"] == "ready":
+    if report["readiness"] in PASSING:
         _record(pdir, session, 0)
-        return {}
+        if report["readiness"] != NO_REGRESSIONS:
+            return {}
+        still = len(report["claims"]["still_failing"])
+        return {
+            "systemMessage": "OpenHarnX: NO REGRESSIONS. Nothing that passed before broke,"
+            " but no acceptance tests define the task, so it is not shown to be done"
+            + (f"; {still} locked test(s) still fail as before." if still else ".")
+        }
     if blocked >= MAX_BLOCKS:
         _record(pdir, session, 0)
         return {
-            "systemMessage": f"OpenHarnX: still {report['readiness'].upper()} after"
+            "systemMessage": f"OpenHarnX: still {verdict(report['readiness'])} after"
             f" {MAX_BLOCKS} attempts; the agent stopped. Report: {run_dir / 'report.md'}"
         }
     _record(pdir, session, blocked + 1)

@@ -33,7 +33,7 @@ from openharnx.regression import (
     read_go_results,
     read_results,
 )
-from openharnx.report import READINESS, render_markdown
+from openharnx.report import NO_REGRESSIONS, READINESS, render_markdown
 from openharnx.sandbox import find_srt
 from openharnx.signing import (
     KEY_ENV,
@@ -876,8 +876,12 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
         gate = evaluate_gate(obligations, observations, before["digest"])
         gate_rec = store.append("gate_evaluation", _gate_to_dict(gate), now=now_utc())
 
+        readiness, claims = _claims(
+            contract.body, gate, baselines, regression_runs, READINESS[gate.result]
+        )
         report = {
-            "readiness": READINESS[gate.result],
+            "readiness": readiness,
+            "claims": claims,
             "contract": {
                 "revision_id": contract.revision_id,
                 "title": contract.body["title"],
@@ -920,6 +924,40 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
         return rec, run_dir
     finally:
         store.close()
+
+
+def _claims(
+    body: dict[str, Any],
+    gate: GateEvaluation,
+    baselines: dict[str, Any],
+    runs: dict[str, tuple[str, dict[str, str] | None]],
+    readiness: str,
+) -> tuple[str, dict[str, Any]]:
+    """What the evidence supports (T91): READY needs a mandatory acceptance check;
+    without one, every mandatory check passing is NO REGRESSIONS."""
+    status = {o["obligation_id"]: o["status"] for o in _gate_to_dict(gate)["obligations"]}
+    mandatory = [ob for ob in body["obligations"] if ob["mandatory"]]
+    accepted = [status.get(ob["id"]) for ob in mandatory if ob.get("kind") == "acceptance"]
+    others = [status.get(ob["id"]) for ob in mandatory if ob.get("kind") != "acceptance"]
+    no_regressions = (
+        False if "fail" in others else True if all(s == "pass" for s in others) else None
+    )
+    if not accepted:
+        acceptance = "none defined"
+    else:
+        acceptance = "met" if all(s == "pass" for s in accepted) else "not met"
+    still: set[str] = set()
+    for suite, (_, tests) in runs.items():
+        before = (baselines.get(suite) or {}).get("tests") or {}
+        still |= {t for t, o in (tests or {}).items() if o == "fail" and before.get(t) == "fail"}
+    if readiness == "ready" and not accepted:
+        readiness = NO_REGRESSIONS
+    claims = {
+        "no_regressions": no_regressions,
+        "acceptance": acceptance,
+        "still_failing": sorted(still),
+    }
+    return readiness, claims
 
 
 def _approved(approval: dict[str, str]) -> str:

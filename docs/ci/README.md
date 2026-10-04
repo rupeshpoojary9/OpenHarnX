@@ -1,8 +1,8 @@
 # Running the gate in any CI
 
-`ohx gate` is a plain command. GitHub Actions (`.github/workflows/gate.yml`) is one wrapper; [`gitlab-ci.yml`](gitlab-ci.yml) and [`Jenkinsfile`](Jenkinsfile) are short examples for GitLab CI and Jenkins. Any other CI that runs a shell on Linux works the same way: make the base commit available, install a pinned OpenHarnX, run the gate, keep `ohx-gate/`. Exit code 0 is READY; 10 is blocked, unknown or invalid.
+`ohx gate` is a plain command. GitHub Actions (`.github/workflows/gate.yml`) is one wrapper; [`gitlab-ci.yml`](gitlab-ci.yml) and [`Jenkinsfile`](Jenkinsfile) are short examples for GitLab CI and Jenkins. Any other CI that runs a shell on Linux works the same way: make the base commit available, install a pinned OpenHarnX, run the gate, keep `ohx-gate/`. Exit code 0 is READY or NO REGRESSIONS; 10 is blocked, unknown or invalid. A gate without a contract has no acceptance tests, so a passing change is NO REGRESSIONS: nothing that passed on the base broke, and the change's own tests pass.
 
-Both examples run the same block of commands, between `# ohx-gate commands` markers. `ci/linux/examples_probe.sh` runs that block on Linux under srt: a genuine change READY, a change that edits a test to match broken code BLOCKED, with and without the base branch in the checkout. That tests the commands, not GitLab or Jenkins themselves; real integrations wait for a pilot.
+Both examples run the same block of commands, between `# ohx-gate commands` markers. `ci/linux/examples_probe.sh` runs that block on Linux under srt: a genuine change passing, a change that edits a test to match broken code BLOCKED, with and without the base branch in the checkout. That tests the commands, not GitLab or Jenkins themselves; real integrations wait for a pilot.
 
 ## What the runner needs
 

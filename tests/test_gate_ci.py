@@ -86,13 +86,13 @@ def _failing(report: dict[str, object]) -> list[str]:
     return [o["obligation_id"] for o in gate["obligations"] if o["status"] != "pass"]
 
 
-def test_genuine_change_with_a_new_test_is_ready(repo: Path, tmp_path: Path) -> None:
+def test_genuine_change_with_a_new_test_passes(repo: Path, tmp_path: Path) -> None:
     calc = CALC + "\n\ndef sub(a, b):\n    return a - b\n"
     test = "from calc import sub\n\n\ndef test_sub():\n    assert sub(5, 3) == 2\n"
     _pr(repo, {"calc.py": calc, "tests/test_sub.py": test})
     code, report = _gate(tmp_path)
     assert code == EXIT_OK, _failing(report)
-    assert report["readiness"] == "ready"
+    assert report["readiness"] == "no-regressions"  # no acceptance tests in a plain gate (T91)
 
 
 def test_editing_a_test_to_match_broken_code_is_blocked(repo: Path, tmp_path: Path) -> None:
@@ -171,7 +171,7 @@ def test_report_is_bound_to_base_and_head_and_goes_to_the_job_summary(
     assert ci["base_commit"] == _git(repo, "rev-parse", "main")
     assert ci["head_commit"] == _git(repo, "rev-parse", "HEAD")
     assert (tmp_path / "gate-out" / "report.md").read_text().startswith("# OpenHarnX report")
-    assert "OpenHarnX report: READY" in summary.read_text()
+    assert "OpenHarnX report: NO REGRESSIONS" in summary.read_text()
 
 
 def test_the_gate_leaves_the_repository_untouched(repo: Path, tmp_path: Path) -> None:

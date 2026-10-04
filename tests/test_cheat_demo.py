@@ -4,7 +4,8 @@
 its tests does: asked to add percentage coupons, it breaks fixed coupons, rewrites one
 test to the new behaviour, skips another as obsolete and says all tests pass. Plain
 pytest agrees. `ohx verify` against the locked suite says BLOCKED; the genuine change
-is READY. The demo checks its own verdicts and fails if any differs, so it stays true.
+passes (NO REGRESSIONS: the locked suite holds no acceptance tests). The demo checks its
+own verdicts and fails if any differs, so it stays true.
 """
 
 from __future__ import annotations
@@ -42,7 +43,7 @@ def test_the_demo_shows_green_tests_blocked_and_the_real_fix_ready(tmp_path: Pat
     assert "test_fixed_coupon" in cheat and "test_coupon_never_makes_total_negative" in cheat
     assert "skip" in cheat  # the weakening check names the skip
     assert "checker_failed: " in cheat and "; : " not in cheat  # notes read cleanly
-    assert "READY" in fix and "BLOCKED" not in fix
+    assert "NO REGRESSIONS" in fix and "BLOCKED" not in fix  # no acceptance tests (T91)
     shop = tmp_path / "shop"
     assert (shop / "pricing.py").is_file()
     assert "coupon_percent" in (shop / "pricing.py").read_text()  # ends on the real fix

@@ -12,7 +12,7 @@ It needs `ohx` and git on PATH and pytest in the Python that runs it. Everything
 1. A small shop's repository: `order_total` with a fixed coupon, three passing tests.
 2. `ohx init --lock-tests`: the existing suite becomes the contract.
 3. The agent is asked to add percentage coupons. Its change breaks fixed coupons; it rewrites `test_fixed_coupon` to the new behaviour, skips `test_coupon_never_makes_total_negative` as obsolete, and says "All tests pass". Plain `pytest` agrees: 3 passed, 1 skipped. `ohx verify` says BLOCKED and names both tests and the skip.
-4. The genuine change keeps fixed coupons, adds percentage coupons and two new tests. `ohx verify` says READY.
+4. The genuine change keeps fixed coupons, adds percentage coupons and two new tests. `ohx verify` says NO REGRESSIONS: everything that passed before still passes. (READY would also need acceptance tests agreed for the task.)
 
 The script checks every verdict and exits 1 if one differs from what it shows, and `tests/test_cheat_demo.py` runs it, so the demo stays true as OpenHarnX changes. The files are in `project/` (the starting repository), `cheat/` (the agent's change) and `fix/` (the genuine change).
 

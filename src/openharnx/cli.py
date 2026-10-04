@@ -35,7 +35,7 @@ from openharnx.app.signed_approval import NOTES_REF
 from openharnx.app.signed_approval import approve as approve_tests
 from openharnx.app.trace import trace_approve, trace_check, trace_init
 from openharnx.doctor import run_checks
-from openharnx.report import render_markdown
+from openharnx.report import PASSING, render_markdown
 from openharnx.signing import SigningError
 
 EXIT_OK = 0
@@ -115,7 +115,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     else:
         print(render_markdown(report))
         print(f"Saved to {run_dir}")
-    return EXIT_OK if report["readiness"] == "ready" else EXIT_BLOCKED
+    return EXIT_OK if report["readiness"] in PASSING else EXIT_BLOCKED
 
 
 def _cmd_hook_install(_: argparse.Namespace) -> int:
@@ -140,7 +140,7 @@ def _cmd_hook_claude_stop(args: argparse.Namespace) -> int:
 def _cmd_report(args: argparse.Namespace) -> int:
     report = current_report(Path.cwd())
     print(json.dumps(report, indent=2) if args.json else render_markdown(report))
-    return EXIT_OK if report["readiness"] == "ready" else EXIT_BLOCKED
+    return EXIT_OK if report["readiness"] in PASSING else EXIT_BLOCKED
 
 
 def _cmd_store_check(args: argparse.Namespace) -> int:
@@ -212,7 +212,7 @@ def _cmd_gate(args: argparse.Namespace) -> int:
     )
     print(render_markdown(report))
     print(f"Saved to {Path(args.out).resolve()}")
-    return EXIT_OK if report["readiness"] == "ready" else EXIT_BLOCKED
+    return EXIT_OK if report["readiness"] in PASSING else EXIT_BLOCKED
 
 
 def _cmd_approve_tests(args: argparse.Namespace) -> int:

@@ -32,7 +32,10 @@ inputs:
 
 outputs:
   readiness:
-    description: ready, blocked, unknown or invalid.
+    description: >-
+      ready (every check passed, acceptance tests included), no-regressions (every check
+      passed but no acceptance tests are agreed, so the task is not shown to be done),
+      blocked, unknown or invalid.
     value: ${{ steps.gate.outputs.readiness }}
   report:
     description: The folder with report.json and report.md.
