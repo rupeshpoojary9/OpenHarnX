@@ -216,14 +216,21 @@ def _names(tests: list[str]) -> str:
     return shown + (f" and {len(tests) - LISTED} more" if len(tests) > LISTED else "")
 
 
-def compare(base: dict[str, Any], outcome: str, tests: dict[str, str] | None) -> tuple[str, str]:
+def compare(
+    base: dict[str, Any],
+    outcome: str,
+    tests: dict[str, str] | None,
+    removed_ok: bool = False,
+) -> tuple[str, str]:
     """Outcome (pass, fail or unavailable) and note for the no-new-failures check.
 
     Per-test results count only when the suite ran properly (it passed or had failing
     tests) and ran at least one test: a suite that collected nothing, crashed or timed
     out is never evidence of a pass (review 2026-10-03). When the suite crashed or ran no
     test at acceptance, a later run counts only if it passed and every test in it passed
-    (impossible-tasks replay, 2026-10-04)."""
+    (impossible-tasks replay, 2026-10-04). With `removed_ok`, a maintainer approved the
+    change's test changes (T90b): a test that passed and no longer runs or is skipped is
+    listed as approved instead of failing; one that now fails still fails."""
     before: dict[str, str] | None = base.get("tests")
     # A crash at collection (a test imports code that does not exist yet) or no tests at
     # all; an invalid or timed-out baseline is not covered and stays unavailable.
@@ -246,18 +253,26 @@ def compare(base: dict[str, Any], outcome: str, tests: dict[str, str] | None) ->
     if before is not None and not before:
         return "unavailable", "no test ran at acceptance, so there is nothing to compare"
     if before is not None and tests is not None:
-        problems = []
+        problems, removed = [], []
         for test_id, was in sorted(before.items()):
             if was != "pass":
                 continue
             now = tests.get(test_id)
             if now != "pass":
                 state = {"fail": "fails", "skip": "is skipped"}.get(now or "", "no longer runs")
-                problems.append(f"{test_id} passed at acceptance and {state}")
+                if removed_ok and now != "fail":
+                    removed.append(test_id)
+                else:
+                    problems.append(f"{test_id} passed at acceptance and {state}")
         added = sorted(t for t, o in tests.items() if t not in before and o == "fail")
         problems += [f"{t} is new and fails" for t in added[:LISTED]]
         if problems:
             return "fail", "; ".join(problems)
+        if removed:
+            return "pass", (
+                f"{len(removed)} test(s) that passed at acceptance no longer run or are"
+                f" skipped, approved: {_names(removed)}"
+            )
         already = sorted(t for t, o in before.items() if o == "fail" and tests.get(t) == "fail")
         if already:
             return "pass", f"failing before this change, still failing: {_names(already)}"

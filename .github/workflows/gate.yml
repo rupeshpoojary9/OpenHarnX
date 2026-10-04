@@ -4,6 +4,11 @@
 # itself, never from the pull request; the pull request is checked out
 # separately and only judged. Read-only
 # token, no secrets, no model calls. Actions are pinned to commit SHAs.
+# Test changes (T90b): a maintainer approves the pull request's intended test changes
+# by adding the ohx-approve-tests label; the job reruns when that label changes. The
+# label counts only from someone with push access, added after the judged commit was
+# pushed. Reading labels and run records needs the actions and pull-requests read
+# permissions below; all of them are read-only.
 # Limit (GitHub): on pull_request the workflow file itself comes from the pull
 # request. Protect it with branch protection and approval for outside
 # contributors' workflows.
@@ -17,12 +22,18 @@ name: OpenHarnX gate
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 permissions:
   contents: read
+  actions: read
+  pull-requests: read
 
 jobs:
   gate:
+    if: >-
+      ${{ (github.event.action != 'labeled' && github.event.action != 'unlabeled')
+      || github.event.label.name == 'ohx-approve-tests' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:

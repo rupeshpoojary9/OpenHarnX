@@ -32,6 +32,7 @@ from openharnx.app import (
     init_project,
     verify,
 )
+from openharnx.app import approval as approvals
 from openharnx.report import render_markdown
 from openharnx.store import Record
 from openharnx.weakening import JS_SOURCE, is_test_file
@@ -84,11 +85,14 @@ def _gate_contract(
     head_sha: str,
     scratch: Path | None = None,
     working_tree: bool = False,
+    approved: approvals.Approval | None = None,
 ) -> dict[str, Any]:
     """The contract the base implies: its tests locked, its own checks, its policy.
 
     With `working_tree`, the base is the working tree itself (`ohx init --lock-tests`, T80);
-    locked copies then go to `scratch`, never beside the repository."""
+    locked copies then go to `scratch`, never beside the repository. With `approved`, a
+    maintainer accepted the pull request's test changes (T90b): the base's tests are not
+    locked, and the pull request's own tests are compared with the base's results."""
     defaults: dict[str, Any] = {}
     if (base / "ohx.toml").is_file():
         try:
@@ -97,7 +101,7 @@ def _gate_contract(
             raise UsageError(f"the base commit's ohx.toml is not valid TOML: {exc}") from exc
     pytest = [*PYTEST, *_pytest_args(defaults)]
     obligations: list[dict[str, Any]] = []
-    if (base / "tests").is_dir():
+    if (base / "tests").is_dir() and approved is None:
         obligations.append(
             {
                 "id": "locked-tests",
@@ -118,7 +122,11 @@ def _gate_contract(
         if suite is not None
     }
     scratch = scratch or base.parent
-    locked = _lock_overlay_tests(base, scratch / "locked-overlay") if suites else None
+    locked = (
+        _lock_overlay_tests(base, scratch / "locked-overlay")
+        if suites and approved is None
+        else None
+    )
     for lang, suite in suites.items():
         if locked is None:
             break
@@ -173,6 +181,13 @@ def _gate_contract(
     for key in ("python", "environment"):
         if key in defaults:
             raw[key] = defaults[key]
+    if approved is not None:
+        raw |= {
+            "approved_label": approved.label,
+            "approved_by": approved.by,
+            "approved_at": approved.at,
+            "approved_head": approved.head,
+        }
     raw["obligations"] = obligations
     return raw
 
@@ -269,14 +284,22 @@ def gate(
     out: Path,
     contract: str | None = None,
     home: Path | None = None,
+    approve_label: str | None = None,
 ) -> dict[str, Any]:
-    """Verify the checked-out pull request against `base_ref`; returns the report."""
+    """Verify the checked-out pull request against `base_ref`; returns the report.
+
+    With `approve_label`, the GitHub label a maintainer adds to approve intended test
+    changes is looked up (T90b); a refused approval changes nothing and says why."""
     try:
         root = repo_root(cwd)
     except NotARepository as exc:
         raise UsageError(f"not inside a git repository: {cwd}") from exc
     base_sha = _git(root, "rev-parse", "--verify", f"{base_ref}^{{commit}}")
     head_sha = _git(root, "rev-parse", "HEAD")
+    looked_up = (
+        approvals.github_approval(approve_label, head_sha, os.environ) if approve_label else None
+    )
+    approved = looked_up.approved if looked_up else None
     work = Path(tempfile.mkdtemp(prefix="ohx-gate-"))
     previous_home = os.environ.get(HOME_ENV)
     os.environ[HOME_ENV] = str(home or work / "home")
@@ -289,12 +312,28 @@ def gate(
                 raise UsageError(f"{contract} does not exist in the base commit {base_sha[:12]}")
         else:
             contract_file = work / "gate-contract.toml"
-            _write_contract(_gate_contract(base, base_sha, head_sha), contract_file)
+            raw = _gate_contract(base, base_sha, head_sha, approved=approved)
+            _write_contract(raw, contract_file)
         init_project(root)
         accept_contract(root, contract_file, sandbox=sandbox, baseline_root=base)
         record, _ = verify(root, sandbox=sandbox)
         report = dict(record.body)
         report["ci"] = {"base_ref": base_ref, "base_commit": base_sha, "head_commit": head_sha}
+        if looked_up is not None:
+            report["approval"] = (
+                {
+                    "label": approved.label,
+                    "by": approved.by,
+                    "at": approved.at,
+                    "head": approved.head,
+                }
+                if approved and not contract
+                else {
+                    "label": approve_label,
+                    "refused": looked_up.refused
+                    or "a contract file was given, so the label does not apply",
+                }
+            )
     finally:
         if previous_home is None:
             os.environ.pop(HOME_ENV, None)

@@ -40,6 +40,18 @@ def _signature_line(report: dict[str, Any]) -> list[str]:
     return [f"- Signature: signed by {signer.get('name', 'unknown')}, key {sig['fingerprint']}"]
 
 
+def _approval_line(report: dict[str, Any]) -> list[str]:
+    approval = report.get("approval")
+    if not approval:
+        return []
+    if "refused" in approval:
+        return [f"- Test changes: not approved ({approval['refused']})"]
+    return [
+        f"- Test changes: approved by @{approval['by']} with the `{approval['label']}` label"
+        f" at {approval['at']}, for commit `{approval['head'][:12]}`"
+    ]
+
+
 def render_markdown(report: dict[str, Any]) -> str:
     gate = report["gate"]
     cand = report["candidate"]
@@ -65,6 +77,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Contract: {report['contract']['title']} ({report['contract']['revision_id']})",
         f"- Candidate: `{cand['digest']}` (base commit {cand['base_commit']})",
         *_ci_line(report),
+        *_approval_line(report),
         f"- Gate: **{gate['result']}**, evidence coverage {gate['coverage_percent']}%",
         f"- Verifier protection: {report['protection']['verifier']}",
         *_signature_line(report),

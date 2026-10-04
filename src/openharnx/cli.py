@@ -204,6 +204,7 @@ def _cmd_gate(args: argparse.Namespace) -> int:
         out=Path(args.out),
         contract=args.contract,
         home=Path(args.home) if args.home else None,
+        approve_label=args.approve_tests_label or None,
     )
     print(render_markdown(report))
     print(f"Saved to {Path(args.out).resolve()}")
@@ -350,6 +351,10 @@ def build_parser() -> argparse.ArgumentParser:
     gat.add_argument("--out", default="ohx-gate", help="folder for report.json and report.md")
     gat.add_argument("--contract", help="a contract file in the base commit, instead of its tests")
     gat.add_argument("--home", help="keep the evidence store here (default: a throwaway one)")
+    gat.add_argument(
+        "--approve-tests-label",
+        help="GitHub label with which a maintainer approves the pull request's test changes",
+    )
     gat.set_defaults(func=_cmd_gate)
 
     aud = sub.add_parser("audit", help="who did what and touched what, from the evidence store")

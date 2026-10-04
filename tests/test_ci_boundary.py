@@ -44,7 +44,8 @@ def _jobs() -> list[str]:
 
 def test_only_the_unprivileged_pull_request_trigger_is_used() -> None:
     on = _text().split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
-    assert re.fullmatch(r"\s*pull_request:\s*", on), on
+    # pull_request only; its event types may be listed (T90b: rerun when a label changes).
+    assert re.fullmatch(r"\s*pull_request:\s*(?:types:\s*\[[\w ,]+\]\s*)?", on), on
     assert "pull_request_target" not in _text()
     assert "workflow_run" not in _text()
 

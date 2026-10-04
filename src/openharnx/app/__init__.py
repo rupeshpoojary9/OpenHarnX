@@ -186,6 +186,11 @@ def accept_contract(
                 json.dumps(accepted_tree, sort_keys=True).encode()
             ),
             **({"regression_baseline": baselines} if baselines else {}),
+            **(
+                {"approval": {k: raw[f"approved_{k}"] for k in ("label", "by", "at", "head")}}
+                if raw.get("approved_by")
+                else {}
+            ),
             "status": "accepted",
         }
         previous = store.latest("contract")
@@ -687,6 +692,7 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
         if npm_note:
             env_outcome, env_note = npm_outcome, npm_note
         baselines: dict[str, Any] = contract.body.get("regression_baseline", {})
+        approval: dict[str, str] | None = contract.body.get("approval")
         regression_runs: dict[str, tuple[str, dict[str, str] | None]] = {}
         order_runs: dict[str, list[str]] = {}
 
@@ -707,6 +713,8 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                 findings = compare_weakening(contract.body["weakening_baseline"], current)
                 outcome = "fail" if findings else "pass"
                 note = "; ".join(findings)
+                if findings and approval:
+                    outcome, note = "pass", f"{_approved(approval)}: {note}"
                 out = "\n".join(findings).encode()
                 ms = int((time.monotonic() - start) * 1000)
                 exit_code, argv = None, ob["command"]
@@ -715,7 +723,11 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                 if ran is None:
                     outcome, note = "unavailable", f"the {ob['of']!r} suite did not run"
                 else:
-                    outcome, note = compare_regression(baselines[ob["of"]], *ran)
+                    outcome, note = compare_regression(
+                        baselines[ob["of"]], *ran, removed_ok=approval is not None
+                    )
+                    if approval and "approved" in note:
+                        note = f"{_approved(approval)}: {note}"
                     if outcome == "pass":
                         outcome, note = _edited_failing(contract.body, ob["of"], pdir, root, note)
                     if outcome == "pass" and order_runs.get(ob["of"]):
@@ -890,6 +902,10 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
         return rec, run_dir
     finally:
         store.close()
+
+
+def _approved(approval: dict[str, str]) -> str:
+    return f"approved by @{approval['by']} ({approval['label']} label, {approval['at']})"
 
 
 def _order_check(

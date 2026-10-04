@@ -20,6 +20,15 @@ inputs:
   out:
     description: Folder for report.json and report.md. Defaults to ohx-gate in the runner's temp folder.
     default: ""
+  approve-tests-label:
+    description: >-
+      The label with which a maintainer approves the pull request's test changes. It counts
+      when added by someone who can write, after the judged commit was pushed. Empty turns
+      approvals off. Needs the actions and pull-requests read permissions.
+    default: ohx-approve-tests
+  token:
+    description: Read-only token for looking up the label. Given to the gate process only.
+    default: ${{ github.token }}
 
 outputs:
   readiness:
@@ -61,13 +70,17 @@ runs:
         OHX_SANDBOX: ${{ inputs.sandbox }}
         OHX_OUT: ${{ inputs.out || format('{0}/ohx-gate', runner.temp) }}
         OHX_SIGNING_KEY: none
+        OHX_APPROVE_LABEL: ${{ inputs.approve-tests-label }}
+        OHX_GITHUB_TOKEN: ${{ inputs.token }}
       run: |
         # The gate builds the protected checker environment with uv from this environment.
         export PATH="$RUNNER_TEMP/ohx/bin:$PATH"
         base="$OHX_BASE"
         git rev-parse --verify -q "$base^{commit}" >/dev/null || { git fetch --no-tags origin "$base"; base=FETCH_HEAD; }
         set +e
-        "$RUNNER_TEMP/ohx/bin/ohx" gate --base "$base" --sandbox "$OHX_SANDBOX" --out "$OHX_OUT"
+        # The token stays with the gate: checkers get an explicit environment allowlist.
+        "$RUNNER_TEMP/ohx/bin/ohx" gate --base "$base" --sandbox "$OHX_SANDBOX" --out "$OHX_OUT" \
+          ${OHX_APPROVE_LABEL:+--approve-tests-label "$OHX_APPROVE_LABEL"}
         code=$?
         set -e
         # -I: isolated, so nothing in the pull request's folder can be imported here.

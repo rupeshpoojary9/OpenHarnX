@@ -40,8 +40,11 @@ Use the action pinned to a commit. Pinning the action pins the gate: it installs
 name: OpenHarnX gate
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 permissions:
   contents: read
+  actions: read        # to tell which commit an approval label was given for
+  pull-requests: read  # to read who added the label
 jobs:
   gate:
     runs-on: ubuntu-24.04
@@ -55,3 +58,14 @@ jobs:
 ```
 
 The action prepares the sandbox (bubblewrap, socat, ripgrep, srt 0.0.77, and Ubuntu 24.04's user-namespace setting), fetches the base if needed, runs `ohx gate --sandbox srt`, writes the report to the job summary, and sets the outputs `readiness` and `report`. Upload `${{ steps.<id>.outputs.report }}` with `actions/upload-artifact` to keep it. OpenHarnX's own `.github/workflows/gate.yml` uses the same action from the base checkout and adds a separate signing job.
+
+## Approving intended test changes
+
+The gate runs the base's tests against the change, so a change that rewrites or removes tests on purpose (a feature removed with its tests, a behaviour changed and its tests updated) is blocked. Replaying the gate over 29 agent pull requests of github/spec-kit, 7 of the 20 that were merged did this.
+
+On GitHub a maintainer approves such a change by adding the `ohx-approve-tests` label (the action's `approve-tests-label` input; empty turns approvals off). The approval counts only when:
+
+- whoever added the label last can push to the repository (write or admin);
+- the label was added after the commit being judged was pushed. The gate checks this against GitHub's own record of workflow runs for the pull request, not commit dates, so a push after the label needs the label again (remove it and add it back).
+
+Approved, the base's tests no longer bind. The change's own tests must pass, a test that passed on the base and still exists must still pass, and a new failing test still blocks. Removed tests and weakening findings are listed in the report as approved, with who approved and when. A refused label changes nothing and the report says why. The label is looked up with the job's read-only token, which reaches the gate process only, never the code under review. Other CI systems have no label approval yet: accept a contract revision on the base instead.
