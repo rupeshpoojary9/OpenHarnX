@@ -33,6 +33,7 @@ Direct:
 | ruff | 0.16.9 | MIT | Format and lint |
 | mypy | 2.3.1 | MIT | Strict type checking |
 | import-linter | 2.15 | BSD-2-Clause | Layer and kernel-purity contracts |
+| pytest-xdist | 3.8.0 | MIT | Runs the suite on all cores (T80) |
 
 Transitive:
 
@@ -40,6 +41,7 @@ Transitive:
 |---|---|---|
 | ast_serialize | 0.11.2 | MIT |
 | click | 8.5.0 | BSD-3-Clause |
+| execnet | 2.1.2 | MIT |
 | grimp | 3.17 | BSD-2-Clause |
 | iniconfig | 2.3.0 | MIT |
 | librt | 0.15.0 | MIT |

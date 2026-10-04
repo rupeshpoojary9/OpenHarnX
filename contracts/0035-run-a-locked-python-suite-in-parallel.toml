@@ -1,11 +1,15 @@
-# OpenHarnX project defaults: added to every contract made with `ohx contract new`.
-# Each check keeps its caches in the run directory ({tmp}) or disables them, so
-# verification never writes into the candidate and can run sandboxed.
-
+title = "Run a locked Python suite in parallel"
+mode = "task"
+change_summary = "pytest_args in ohx.toml adds the project's pytest options (such as -n auto) to the locked run and the default tests run; per-test results still decide. OpenHarnX's own suite now runs with -n auto."
 python = ".venv/bin/python"
-# Checkers run from an environment built from the accepted uv.lock in the OpenHarnX
-# store, not from .venv (T77 item 10). {python} and {bindir} point there.
 environment = "uv"
+
+[[obligations]]
+id = "acceptance-test_parallel_suite"
+kind = "acceptance"
+mandatory = true
+protected = "../tests/test_parallel_suite.py"
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "{protected}"]
 
 [[obligations]]
 id = "format"

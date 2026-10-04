@@ -95,6 +95,7 @@ def _gate_contract(
             defaults = tomllib.loads((base / "ohx.toml").read_text(encoding="utf-8"))
         except tomllib.TOMLDecodeError as exc:
             raise UsageError(f"the base commit's ohx.toml is not valid TOML: {exc}") from exc
+    pytest = [*PYTEST, *_pytest_args(defaults)]
     obligations: list[dict[str, Any]] = []
     if (base / "tests").is_dir():
         obligations.append(
@@ -106,7 +107,7 @@ def _gate_contract(
                 # Run inside a copy of the tree with tests/ replaced by the locked copy,
                 # so tests see the repository's layout and keep the same names (RC-31).
                 "protected_at": "tests",
-                "command": [*PYTEST, "{protected}"],
+                "command": [*pytest, "{protected}"],
             }
         )
     # TypeScript, JavaScript and Go tests sit next to the code: the base's test files are
@@ -140,7 +141,7 @@ def _gate_contract(
                     "id": "tests",
                     "kind": "regression",
                     "mandatory": False,
-                    "command": [*PYTEST, "tests"],
+                    "command": [*pytest, "tests"],
                 }
             )
         for lang, suite in suites.items():
@@ -174,6 +175,15 @@ def _gate_contract(
             raw[key] = defaults[key]
     raw["obligations"] = obligations
     return raw
+
+
+def _pytest_args(defaults: dict[str, Any]) -> list[str]:
+    """The project's own pytest options (`pytest_args` in ohx.toml, such as pytest-xdist's
+    `-n auto`), added to the locked run and the default `tests` run (T80)."""
+    args = defaults.get("pytest_args", [])
+    if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
+        raise UsageError("pytest_args in ohx.toml must be a list of strings")
+    return args
 
 
 def _js_suite(base: Path, defaults: dict[str, Any]) -> list[str] | None:

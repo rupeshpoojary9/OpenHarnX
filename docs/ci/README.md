@@ -18,6 +18,10 @@ Both examples run the same block of commands, between `# ohx-gate commands` mark
 - **Untrusted changes run on throwaway runners.** A merge request from a fork, or a pull request from someone outside the team, executes their code (tests, build steps) inside the sandbox. Use ephemeral runners, not a persistent shared agent. GitLab runs fork pipelines in the fork's project unless a maintainer starts one in the parent; Jenkins's GitHub Branch Source can take the Jenkinsfile from the target branch for untrusted contributors ("Trust" setting), which also stops a change from editing the pipeline that judges it.
 - **Make the job a required check** (GitLab: "Pipelines must succeed"; Jenkins: a required status on the pull request) so a blocked change cannot be merged.
 
+## Python projects
+
+The locked run is `pytest` on the base's `tests/`. `pytest_args` in the base's `ohx.toml` adds the project's own options to it and to the default `tests` run, for example `pytest_args = ["-n", "auto"]` to run on every core with pytest-xdist (which must be in the protected environment). Per-test results still decide. A change to `pytest_args`, like any `ohx.toml` change, is caught by the weakening check.
+
 ## TypeScript and JavaScript projects
 
 - **Do not run `npm ci` (or `npm install`) on the change before the gate.** It runs the change's install scripts in the job, outside the sandbox, and leaves a `node_modules` that is not part of what the gate judges. Put `environment = "npm"` in `ohx.toml` on the base branch instead: the gate installs from the base's `package-lock.json` itself, with `--ignore-scripts`, and a change that edits the lockfile gets no verdict until someone accepts a contract revision for it. The runner needs `npm` and network access for that install; the checks themselves run in the sandbox without network.

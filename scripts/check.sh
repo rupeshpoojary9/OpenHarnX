@@ -7,5 +7,5 @@ echo "== format";  uv run ruff format --check .
 echo "== lint";    uv run ruff check .
 echo "== types";   uv run mypy
 echo "== layers";  uv run lint-imports
-echo "== tests";   uv run pytest
+echo "== tests";   uv run pytest -n auto
 echo "all checks passed"
