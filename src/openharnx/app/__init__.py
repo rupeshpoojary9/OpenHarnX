@@ -23,7 +23,15 @@ from openharnx.mutation import PROBE_ENV, Mutant, changed_lines
 from openharnx.mutation import select as select_mutants
 from openharnx.regression import baseline as regression_baseline
 from openharnx.regression import compare as compare_regression
-from openharnx.regression import edited_tests, junit_env, read_go_results, read_results
+from openharnx.regression import (
+    edited_tests,
+    junit_env,
+    newly_passing,
+    order_env,
+    order_problems,
+    read_go_results,
+    read_results,
+)
 from openharnx.report import READINESS, render_markdown
 from openharnx.sandbox import find_srt
 from openharnx.signing import (
@@ -680,6 +688,7 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
             env_outcome, env_note = npm_outcome, npm_note
         baselines: dict[str, Any] = contract.body.get("regression_baseline", {})
         regression_runs: dict[str, tuple[str, dict[str, str] | None]] = {}
+        order_runs: dict[str, list[str]] = {}
 
         observations: list[Observation] = []
         raw_obs: list[dict[str, Any]] = []
@@ -709,6 +718,16 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                     outcome, note = compare_regression(baselines[ob["of"]], *ran)
                     if outcome == "pass":
                         outcome, note = _edited_failing(contract.body, ob["of"], pdir, root, note)
+                    if outcome == "pass" and order_runs.get(ob["of"]):
+                        outcome, note = (
+                            "fail",
+                            (
+                                f"{'; '.join(order_runs[ob['of']][:LISTED_EDITED])}. A test that"
+                                " passes only after other tests ran suggests the code keeps state"
+                                " between calls (a counter or a toggle) instead of fixing the"
+                                " behaviour"
+                            ),
+                        )
                 out, ms, exit_code, argv = note.encode(), 0, None, ob["command"]
             elif env_note:
                 outcome, exit_code, out, ms, argv = env_outcome, None, b"", 0, ob["command"]
@@ -769,6 +788,17 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                     regression_runs[ob["id"]] = (
                         r.outcome,
                         read_results(junit, where) or read_go_results(r.output),
+                    )
+                    order_runs[ob["id"]] = _order_check(
+                        ob,
+                        baselines[ob["id"]],
+                        regression_runs[ob["id"]][1],
+                        where,
+                        protected,
+                        run_dir,
+                        srt,
+                        deny_read,
+                        python,
                     )
                 outcome, exit_code, out, ms, argv = (
                     r.outcome,
@@ -860,6 +890,40 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
         return rec, run_dir
     finally:
         store.close()
+
+
+def _order_check(
+    ob: dict[str, Any],
+    base: dict[str, Any],
+    tests: dict[str, str] | None,
+    where: Path,
+    protected: Path | None,
+    run_dir: Path,
+    srt: Path | None,
+    deny_read: list[str],
+    python: str,
+) -> list[str]:
+    """Tests that newly pass must also pass on their own and in reverse order, so that two
+    contradicting tests cannot both pass through state kept between calls (impossible-tasks
+    replay, 2026-10-04). Pytest suites only; one extra run, only when a test newly passes."""
+    newly = newly_passing(base, tests)
+    if not newly or not any("pytest" in str(a) for a in ob["command"]):
+        return []
+    junit = run_dir / "tmp" / f"junit-order-{ob['id']}.xml"
+    env = order_env(
+        run_dir / "tmp" / f"order-{ob['id']}", newly, junit, ob.get("env", {}).get("PYTHONPATH", "")
+    )
+    r = run_obligation(
+        ob,
+        candidate=where,
+        protected=protected,
+        run_dir=run_dir,
+        srt=srt,
+        deny_read=deny_read,
+        python=python,
+        extra_env=env,
+    )
+    return order_problems(newly, read_results(junit, where), r.outcome)
 
 
 def _edited_failing(

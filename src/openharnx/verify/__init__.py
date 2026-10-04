@@ -99,7 +99,7 @@ def run_obligation(
         "TMPDIR": str(tmp),
         "PYTHONDONTWRITEBYTECODE": "1",
         **{k: _expand(v, subs) for k, v in obligation.get("env", {}).items()},
-        **(extra_env or {}),
+        **{k: _expand(v, subs) for k, v in (extra_env or {}).items()},
     }
     if srt is not None:
         profile = write_profile(

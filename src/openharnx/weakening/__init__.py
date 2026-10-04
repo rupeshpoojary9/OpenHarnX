@@ -10,12 +10,20 @@ Adding tests needs no approval: a new test file is checked only for
 suppressions, and more tests or assertions in an existing file are fine.
 Python, TypeScript, JavaScript and Go (T82); counts are per file, so moving a
 suppression within one file is not seen. Baselines made before TypeScript
-support (version 1) are compared on Python only, and before Go support
-(version 2) without Go, so their contracts judge as they did.
+support (version 1) are compared on Python only, before Go support
+(version 2) without Go, and before the source checks (version 3) without them, so their
+contracts judge as they did.
+
+Source checks (impossible-tasks replay, 2026-10-04): code outside the tests can also lower
+the bar. In Python files that are not tests, a new patch of an imported module (the code
+replacing `random.randint` the test uses) or a new `__eq__` that can hide a wrong result
+(it returns a constant, belongs to a subclass of a builtin value, or compares the other
+value with something computed only when the test compares) is a finding.
 """
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import re
@@ -23,7 +31,7 @@ import tomllib
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-BASELINE_VERSION = 3
+BASELINE_VERSION = 4
 
 # Files that configure checkers, wherever they are (ruff and pytest read nested ones).
 CONFIG_NAMES = frozenset(
@@ -114,6 +122,121 @@ _CHECKS = re.compile(
 )
 
 
+PATCH = "patch of an imported module"
+EQUALITY = "__eq__ that can hide a wrong result"
+SOURCE_CHECKS = (PATCH, EQUALITY)
+_BUILTIN_VALUES = frozenset(
+    {"str", "bytes", "int", "float", "complex", "bool", "list", "tuple", "dict", "set", "frozenset"}
+)
+
+
+def _root_name(node: ast.expr) -> str | None:
+    while isinstance(node, ast.Attribute):
+        node = node.value
+    return node.id if isinstance(node, ast.Name) else None
+
+
+def _scopes(tree: ast.Module) -> list[tuple[ast.AST, set[str]]]:
+    """Each function body and the module, with the names bound locally in it that are
+    not module imports (parameters and assignments shadow the module name)."""
+    found: list[tuple[ast.AST, set[str]]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            a = node.args
+            params = {x.arg for x in [*a.posonlyargs, *a.args, *a.kwonlyargs]}
+            params |= {x.arg for x in (a.vararg, a.kwarg) if x is not None}
+            found.append((node, params))
+    return found
+
+
+def _patches(tree: ast.Module) -> int:
+    """Assignments to, or deletions of, attributes of a module imported with `import`."""
+    modules = {
+        (alias.asname or alias.name.split(".")[0])
+        for node in tree.body
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    if not modules:
+        return 0
+    shadowed: dict[int, set[str]] = {}
+    for scope, params in _scopes(tree):
+        for inner in ast.walk(scope):
+            shadowed[id(inner)] = shadowed.get(id(inner), set()) | params
+    count = 0
+    for node in ast.walk(tree):
+        targets: list[ast.expr] = []
+        if isinstance(node, (ast.Assign, ast.Delete)):
+            targets = node.targets
+        elif isinstance(node, (ast.AugAssign, ast.AnnAssign)):
+            targets = [node.target]
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in ("setattr", "delattr")
+            and node.args
+        ):
+            targets = [ast.Attribute(value=node.args[0], attr="?", ctx=ast.Store())]
+        for target in targets:
+            local = shadowed.get(id(node), set())
+            if isinstance(target, ast.Attribute):
+                name = _root_name(target.value)
+                # Redirecting sys.stdout, sys.path or a sys hook is ordinary practice.
+                if name in modules and name not in local and name != "sys":
+                    count += 1
+            elif (
+                isinstance(target, ast.Subscript)
+                and isinstance(target.value, ast.Attribute)
+                and target.value.attr == "modules"
+                and _root_name(target.value) == "sys"
+                and "sys" in modules
+            ):
+                count += 1
+    return count
+
+
+def _hides_result(cls: ast.ClassDef, fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    if any(isinstance(b, ast.Name) and b.id in _BUILTIN_VALUES for b in cls.bases):
+        return True
+    returns = [n for n in ast.walk(fn) if isinstance(n, ast.Return)]
+    if returns and all(
+        isinstance(r.value, ast.Constant) and isinstance(r.value.value, bool) for r in returns
+    ):
+        return True
+    params = [a.arg for a in fn.args.args]
+    if len(params) < 2:
+        return False
+    other = params[1]
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Compare) and len(node.comparators) == 1:
+            sides = (node.left, node.comparators[0])
+            for this, that in (sides, sides[::-1]):
+                if isinstance(this, ast.Name) and this.id == other and isinstance(that, ast.Call):
+                    return True
+    return False
+
+
+def _equalities(tree: ast.Module) -> int:
+    """`__eq__` and `__ne__` methods that can make a wrong result compare equal."""
+    return sum(
+        1
+        for cls in ast.walk(tree)
+        if isinstance(cls, ast.ClassDef)
+        for fn in cls.body
+        if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and fn.name in ("__eq__", "__ne__")
+        and _hides_result(cls, fn)
+    )
+
+
+def _source_counts(text: str) -> dict[str, int]:
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return {}
+    return {PATCH: _patches(tree), EQUALITY: _equalities(tree)}
+
+
 def is_test_file(path: str) -> bool:
     p = PurePosixPath(path)
     name = p.name
@@ -190,6 +313,8 @@ def snapshot(root: Path, paths: list[str]) -> dict[str, Any]:
             continue
         text = data.decode("utf-8", errors="replace")
         counts = {k: len(p.findall(text)) for k, p in patterns.items()}
+        if rel.endswith(".py") and not is_test_file(rel):
+            counts |= _source_counts(text)
         counts = {k: n for k, n in counts.items() if n}
         if counts:
             suppressions[rel] = counts
@@ -208,7 +333,7 @@ def snapshot(root: Path, paths: list[str]) -> dict[str, Any]:
 
 def _as_version(snap: dict[str, Any], version: int) -> dict[str, Any]:
     """What a baseline of an earlier version would have recorded: version 1 Python only,
-    version 2 without Go."""
+    version 2 without Go, version 3 without the source checks."""
 
     def known(path: str, config: bool = False) -> bool:
         name = PurePosixPath(path).name
@@ -218,12 +343,20 @@ def _as_version(snap: dict[str, Any], version: int) -> dict[str, Any]:
                 if config
                 else (path.endswith(".py"))
             )
-        return not (path.endswith(".go") or (config and GO_CONFIG.match(name)))
+        if version < 3:
+            return not (path.endswith(".go") or (config and GO_CONFIG.match(name)))
+        return True
 
+    suppressions = {k: v for k, v in snap["suppressions"].items() if known(k)}
+    if version < 4:
+        suppressions = {
+            k: {kind: n for kind, n in v.items() if kind not in SOURCE_CHECKS}
+            for k, v in suppressions.items()
+        }
     return {
         **snap,
         "config": {k: v for k, v in snap["config"].items() if known(k, config=True)},
-        "suppressions": {k: v for k, v in snap["suppressions"].items() if known(k)},
+        "suppressions": suppressions,
         "tests": {k: v for k, v in snap["tests"].items() if known(k)},
     }
 

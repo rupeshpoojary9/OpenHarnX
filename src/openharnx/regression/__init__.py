@@ -34,6 +34,80 @@ def junit_env(path: Path) -> dict[str, str]:
     return {"PYTEST_ADDOPTS": f"--junitxml={path}", JUNIT_ENV: str(path)}
 
 
+# Loaded into pytest with -p for the order check: keeps only the tests listed in the file
+# named by OHX_ORDER_IDS and runs them in reverse order. Ids are made the way pytest's
+# JUnit XML names tests, so they match read_results.
+ORDER_PLUGIN = """\
+import os
+import re
+
+
+def _junit_id(nodeid):
+    path, bracket, params = nodeid.partition("[")
+    names = path.split("::")
+    names[0] = re.sub(r"\\.py$", "", names[0].replace("/", "."))
+    names[-1] += bracket + params
+    return ".".join(names[:-1]) + "::" + names[-1]
+
+
+def pytest_collection_modifyitems(config, items):
+    with open(os.environ["OHX_ORDER_IDS"], encoding="utf-8") as f:
+        wanted = set(f.read().splitlines())
+    keep = [i for i in items if _junit_id(i.nodeid) in wanted]
+    dropped = [i for i in items if _junit_id(i.nodeid) not in wanted]
+    if dropped:
+        config.hook.pytest_deselected(items=dropped)
+    items[:] = keep[::-1]
+"""
+ORDER_MODULE = "ohx_order"
+
+
+def order_env(
+    folder: Path, test_ids: list[str], junit: Path, pythonpath: str = ""
+) -> dict[str, str]:
+    """Environment for the order check run: only `test_ids`, in reverse order, results to
+    `junit`. Writes the plugin and the id list into `folder`."""
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{ORDER_MODULE}.py").write_text(ORDER_PLUGIN, encoding="utf-8")
+    (folder / "ids.txt").write_text("\n".join(test_ids) + "\n", encoding="utf-8")
+    path = str(folder) + (f":{pythonpath}" if pythonpath else "")
+    return {
+        "PYTEST_ADDOPTS": f"-p {ORDER_MODULE} --junitxml={junit}",
+        JUNIT_ENV: str(junit),
+        "PYTHONPATH": path,
+        "OHX_ORDER_IDS": str(folder / "ids.txt"),
+    }
+
+
+def newly_passing(base: dict[str, Any], tests: dict[str, str] | None) -> list[str]:
+    """Tests that pass now and did not at acceptance; every passing test when the suite
+    had no per-test baseline because it crashed or ran nothing."""
+    if not tests:
+        return []
+    before: dict[str, str] | None = base.get("tests")
+    if base.get("outcome") == "crash" or before == {}:
+        return sorted(t for t, o in tests.items() if o == "pass")
+    if before is None:
+        return []
+    return sorted(t for t, o in tests.items() if o == "pass" and before.get(t) in ("fail", "skip"))
+
+
+def order_problems(test_ids: list[str], tests: dict[str, str] | None, outcome: str) -> list[str]:
+    """Tests from `test_ids` that did not pass when run on their own in reverse order."""
+    if tests is None:
+        return [
+            f"the {len(test_ids)} test(s) that newly pass could not be run again on their own"
+            f" (the run ended with {outcome})"
+        ]
+    problems = []
+    for test_id in test_ids:
+        now = tests.get(test_id)
+        if now != "pass":
+            state = {"fail": "fails", "skip": "is skipped"}.get(now or "", "does not run")
+            problems.append(f"{test_id} passes in the full run but {state} on its own")
+    return problems
+
+
 def _relative(file: str, root: Path | None) -> str:
     if root is None:
         return file
