@@ -146,8 +146,19 @@ def compare(base: dict[str, Any], outcome: str, tests: dict[str, str] | None) ->
 
     Per-test results count only when the suite ran properly (it passed or had failing
     tests) and ran at least one test: a suite that collected nothing, crashed or timed
-    out is never evidence of a pass (review 2026-10-03)."""
+    out is never evidence of a pass (review 2026-10-03). When the suite crashed or ran no
+    test at acceptance, a later run counts only if it passed and every test in it passed
+    (impossible-tasks replay, 2026-10-04)."""
     before: dict[str, str] | None = base.get("tests")
+    # A crash at collection (a test imports code that does not exist yet) or no tests at
+    # all; an invalid or timed-out baseline is not covered and stays unavailable.
+    no_baseline = base.get("outcome") == "crash" or before == {}
+    if no_baseline and outcome == "pass" and tests and set(tests.values()) == {"pass"}:
+        # Nothing passed at acceptance, so nothing can regress; a full pass is enough.
+        return "pass", (
+            f"no baseline (the suite could not run at acceptance); all {len(tests)}"
+            " test(s) pass now"
+        )
     if base.get("outcome") not in ("pass", "fail"):
         return "unavailable", (
             f"no baseline: the suite could not run at acceptance ({base.get('outcome')});"
