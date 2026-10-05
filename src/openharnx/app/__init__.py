@@ -980,29 +980,31 @@ def _claims(
     else:
         acceptance = "met" if all(s == "pass" for s in accepted) else "not met"
     still: set[str] = set()
-    now_all: dict[str, str] = {}
-    before_all: dict[str, str] = {}
+    counted: dict[str, int] | None = None
     for suite, (_, tests) in runs.items():
         before = (baselines.get(suite) or {}).get("tests") or {}
-        still |= {t for t, o in (tests or {}).items() if o == "fail" and before.get(t) == "fail"}
-        now_all |= tests or {}
-        before_all |= before
-    # Which tests checked the change (T90d): only one that passes after it does.
-    both = {o: sum(1 for t, s in now_all.items() if s == o and before_all.get(t) == o)
-            for o in ("fail", "skip")}  # fmt: skip
-    counted = {
-        "ran": len(now_all),
-        "checked": sum(1 for s in now_all.values() if s == "pass"),
-        "failed_both_times": both["fail"],
-        "skipped_both_times": both["skip"],
-    }
+        now = tests or {}
+        still |= {t for t, o in now.items() if o == "fail" and before.get(t) == "fail"}
+        # Which tests checked the change (T90d): only one that passes after it does.
+        # Counted per suite: the locked copy and the change's own copy run the same
+        # tests, sometimes under different ids, so they are never added up.
+        both = {o: sum(1 for t, s in now.items() if s == o and before.get(t) == o)
+                for o in ("fail", "skip")}  # fmt: skip
+        suite_counts = {
+            "ran": len(now),
+            "checked": sum(1 for s in now.values() if s == "pass"),
+            "failed_both_times": both["fail"],
+            "skipped_both_times": both["skip"],
+        }
+        if now and (counted is None or suite_counts["ran"] > counted["ran"]):
+            counted = suite_counts
     if readiness == "ready" and not accepted:
         readiness = NO_REGRESSIONS
     claims = {
         "no_regressions": no_regressions,
         "acceptance": acceptance,
         "still_failing": sorted(still),
-        "tests": counted if now_all else None,
+        "tests": counted,
     }
     return readiness, claims
 

@@ -29,6 +29,8 @@ from openharnx.app import (
 from openharnx.app.audit import audit_trail
 from openharnx.app.bug import bug_approve, bug_fix, bug_new, bug_show, describe_proposed
 from openharnx.app.gate import gate, lock_tests
+from openharnx.app.history import history as history_rows
+from openharnx.app.history import write as write_history
 from openharnx.app.hook import install as hook_install
 from openharnx.app.hook import main_stop as hook_main_stop
 from openharnx.app.signed_approval import NOTES_REF
@@ -227,6 +229,20 @@ def _cmd_approve_tests(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_history(args: argparse.Namespace) -> int:
+    rows = history_rows(
+        Path.cwd(),
+        last=args.last,
+        branch=args.branch,
+        agents_only=args.agents_only,
+        config=Path(args.config) if args.config else None,
+        sandbox=args.sandbox,
+    )
+    print(write_history(rows, args.branch or "HEAD", Path(args.out)))
+    print(f"Saved to {Path(args.out).resolve()}")
+    return EXIT_OK
+
+
 def _cmd_audit(args: argparse.Namespace) -> int:
     for line in audit_trail(Path.cwd()):
         print(line)
@@ -367,6 +383,16 @@ def build_parser() -> argparse.ArgumentParser:
     apt.add_argument("rev", nargs="?", default="HEAD", help="the commit to approve (default HEAD)")
     apt.add_argument("--out", help="write the signature to this file instead of a git note")
     apt.set_defaults(func=_cmd_approve_tests)
+    his = sub.add_parser(
+        "history", help="what the gate would have said about each change already merged"
+    )
+    his.add_argument("--last", type=int, default=20, help="how many commits back (default 20)")
+    his.add_argument("--branch", help="the branch to walk (default: the checked-out one)")
+    his.add_argument("--agents-only", action="store_true", help="only changes by coding agents")
+    his.add_argument("--config", help="an ohx.toml to lend to commits that have none")
+    his.add_argument("--sandbox", choices=["auto", "srt", "none"], default="auto")
+    his.add_argument("--out", default="ohx-history", help="folder for history.md and .json")
+    his.set_defaults(func=_cmd_history)
     gat = sub.add_parser("gate", help="CI: judge the checked-out change against its base commit")
     gat.add_argument("--base", required=True, help="base commit or ref (the trusted side)")
     gat.add_argument("--sandbox", choices=["auto", "srt", "none"], default="auto")
