@@ -4,7 +4,9 @@ Found running `ohx history` on anthropics/claude-agent-sdk-python (2026-10-05) f
 partial clone (`--filter=blob:none`): the throwaway clone it judges in shares the
 repository's objects but cannot fetch the missing file contents, so every one of 31
 commits failed with the same git error. A shallow clone lacks the history itself. Both
-are now refused before any work, with the command that fixes them.
+are now refused before any work, with what fixes them. The check looks for the file
+contents of the commits to judge, not at git's configuration (removing the partial
+clone settings, as tried during that run, leaves the contents missing).
 """
 
 from __future__ import annotations
@@ -43,8 +45,8 @@ def source(tmp_path: Path) -> Path:
     (src / "ohx.toml").write_text(f"python = {sys.executable!r}\n")
     _git("add", "-A", cwd=src)
     _git("commit", "-qm", "start", cwd=src)
-    for i in range(3):
-        (src / f"notes{i}.txt").write_text(f"{i}\n")
+    for i in range(3):  # each change rewrites a file, so old contents differ
+        (src / "notes.txt").write_text(f"{i}\n" * (i + 1))
         _git("add", "-A", cwd=src)
         _git("commit", "-qm", f"change {i}", cwd=src)
     _git("config", "uploadpack.allowFilter", "true", cwd=src)
@@ -68,8 +70,22 @@ def test_a_partial_clone_is_refused_with_the_fix(
     _git("clone", "-q", "--filter=blob:none", f"file://{source}", str(clone))
     code, _ = _run(clone, tmp_path, monkeypatch)
     err = capsys.readouterr().err
-    assert code != 0 and "partial clone" in err and "git fetch --refetch" in err
+    assert code != 0 and "partial clone" in err and "without --filter" in err
     assert not (tmp_path / "o" / "history.json").exists()
+
+
+def test_missing_contents_are_found_whatever_the_config_says(
+    source: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    clone = tmp_path / "partial-unmarked"
+    _git("clone", "-q", "--filter=blob:none", f"file://{source}", str(clone))
+    for key in ("remote.origin.promisor", "remote.origin.partialclonefilter"):
+        _git("config", "--unset-all", key, cwd=clone)
+    code, _ = _run(clone, tmp_path, monkeypatch)
+    assert code != 0 and "without --filter" in capsys.readouterr().err
 
 
 def test_a_shallow_clone_is_refused_with_the_fix(

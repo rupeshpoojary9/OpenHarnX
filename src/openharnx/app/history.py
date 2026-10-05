@@ -88,23 +88,23 @@ def _judge(
     }
 
 
-def _whole_history(root: Path) -> None:
-    """Refuse clones that lack history or file contents, before any work (T92)."""
+def _whole_history(root: Path, ref: str, last: int) -> None:
+    """Refuse clones that lack the history or the file contents to judge, before any
+    work (T92). Looks for the contents themselves, not at git's configuration."""
     if _git(root, "rev-parse", "--is-shallow-repository") == "true":
         raise UsageError(
             "this is a shallow clone, so the history to judge is missing; run"
             " `git fetch --unshallow` first"
         )
-    promisor = r"^(remote\..*\.promisor|extensions\.partialclone)$"
-    partial = subprocess.run(
-        ["git", "-C", str(root), "config", "--get-regexp", promisor],
-        capture_output=True,
-        text=True,
-    )
-    if partial.returncode == 0 and partial.stdout.strip():
+    listed = subprocess.run(
+        ["git", "-C", str(root), "rev-list", "--objects", "--missing=print",
+         f"--max-count={last + 1}", ref],
+        capture_output=True, text=True,
+    )  # fmt: skip
+    if any(line.startswith("?") for line in listed.stdout.splitlines()):
         raise UsageError(
-            "this is a partial clone (made with --filter), so old file contents are"
-            " missing; run `git fetch --refetch` to download them, or clone without --filter"
+            "file contents of the commits to judge are missing (a partial clone, made with"
+            " --filter); clone the repository again without --filter"
         )
 
 
@@ -124,7 +124,7 @@ def history(
         raise UsageError(f"not inside a git repository: {cwd}") from exc
     if config is not None and not config.is_file():
         raise UsageError(f"config not found: {config}")
-    _whole_history(root)
+    _whole_history(root, branch or "HEAD", last)
     ref = branch or "HEAD"
     commits = _git(root, "rev-list", "--first-parent", f"--max-count={last}", ref).split()
     rows: list[dict[str, Any]] = []
