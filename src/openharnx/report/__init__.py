@@ -29,6 +29,11 @@ def _claims_lines(report: dict[str, Any]) -> list[str]:
     regress = {True: "yes, every test that passed before still passes", False: "no"}.get(
         claims["no_regressions"], "not known"
     )
+    if claims.get("regression_checks") == 0:
+        regress = (
+            "not checked: this contract runs no test that passed before, so a change that"
+            " breaks one would not show"
+        )
     acceptance = {
         "met": "met",
         "not met": "not met",

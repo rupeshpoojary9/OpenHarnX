@@ -297,15 +297,8 @@ def new_contract(
         obligations.append(ob)
     if "obligations" in defaults:
         obligations += [dict(o) for o in defaults["obligations"]]
-    elif (root / "tests").is_dir():
-        obligations.append(
-            {
-                "id": "tests",
-                "kind": "regression",
-                "mandatory": False,
-                "command": ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests"],
-            }
-        )
+    else:
+        obligations += _default_suites(root, defaults)
 
     raw: dict[str, Any] = {"title": title, "mode": mode, "change_summary": summary}
     if "python" in defaults:
@@ -959,6 +952,26 @@ def _with_where(
     return {**(extra or {}), **where, "PYTEST_ADDOPTS": addopts}
 
 
+def _default_suites(root: Path, defaults: dict[str, Any]) -> list[dict[str, Any]]:
+    """The project's whole suites as regression checks: pytest on tests/, and the
+    TypeScript, JavaScript or Go runner `ohx gate` would use (T93; before it, only pytest,
+    so a TypeScript contract checked nothing but its acceptance tests)."""
+    from openharnx.app.gate import _go_suite, _js_suite, _suite_fields  # gate imports app
+
+    suites: list[dict[str, Any]] = []
+    if (root / "tests").is_dir():
+        command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests"]
+        suites.append({"id": "tests", "kind": "regression", "mandatory": False, "command": command})
+    for lang, suite in (("js", _js_suite(root, defaults)), ("go", _go_suite(root))):
+        if suite is not None:
+            taken = {o["id"] for o in suites}
+            oid = "tests" if "tests" not in taken else f"{lang}-tests"
+            suites.append(
+                {"id": oid, "kind": "regression", "mandatory": False, **_suite_fields(suite)}
+            )
+    return suites
+
+
 def _claims(
     body: dict[str, Any],
     gate: GateEvaluation,
@@ -971,9 +984,21 @@ def _claims(
     status = {o["obligation_id"]: o["status"] for o in _gate_to_dict(gate)["obligations"]}
     mandatory = [ob for ob in body["obligations"] if ob["mandatory"]]
     accepted = [status.get(ob["id"]) for ob in mandatory if ob.get("kind") == "acceptance"]
-    others = [status.get(ob["id"]) for ob in mandatory if ob.get("kind") != "acceptance"]
+    # Only checks that run tests that passed before can support the claim (T93): the
+    # weakening check passing says nothing about whether those tests still pass.
+    checks = [
+        status.get(ob["id"])
+        for ob in mandatory
+        if ob.get("kind") == "regression" or ob.get("builtin") == NO_NEW_FAILURES
+    ]
     no_regressions = (
-        False if "fail" in others else True if all(s == "pass" for s in others) else None
+        None
+        if not checks
+        else False
+        if "fail" in checks
+        else True
+        if all(s == "pass" for s in checks)
+        else None
     )
     if not accepted:
         acceptance = "none defined"
@@ -1002,6 +1027,7 @@ def _claims(
         readiness = NO_REGRESSIONS
     claims = {
         "no_regressions": no_regressions,
+        "regression_checks": len(checks),
         "acceptance": acceptance,
         "still_failing": sorted(still),
         "tests": counted,
