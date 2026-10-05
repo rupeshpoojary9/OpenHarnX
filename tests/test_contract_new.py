@@ -93,7 +93,9 @@ def test_defaults_to_bugfix_and_advisory_tests_without_project_defaults(
     raw = tomllib.loads((repo / "contracts" / "0001-fix-add.toml").read_text())
     assert raw["mode"] == "bugfix"
     regression = [o for o in raw["obligations"] if o["kind"] == "regression"]
-    assert len(regression) == 1 and regression[0]["mandatory"] is False
+    # the locked copy and the working tree's own run (T95), both advisory
+    assert [o["id"] for o in regression] == ["locked-tests", "tests"]
+    assert all(o["mandatory"] is False for o in regression)
 
 
 def test_accept_flag_then_verify_blocks_then_passes(repo: Path, acceptance: Path) -> None:

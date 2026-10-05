@@ -935,6 +935,7 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                 *_interpreter_limitations(environment, python, root),
                 *_node_modules_limitations(contract.body, root),
                 *_regression_limitations(contract.body),
+                *_unlocked_limitations(contract.body),
             ],
             "authorizes": "It is evidence of readiness, not permission to merge, deploy or"
             " publish.",
@@ -986,11 +987,30 @@ def _default_suites(root: Path, defaults: dict[str, Any]) -> list[dict[str, Any]
     """The project's whole suites as regression checks: pytest on tests/, and the
     TypeScript, JavaScript or Go runner `ohx gate` would use (T93; before it, only pytest,
     so a TypeScript contract checked nothing but its acceptance tests)."""
-    from openharnx.app.gate import _go_suite, _js_suite, _suite_fields  # gate imports app
+    from openharnx.app.gate import (  # gate imports app
+        PYTEST,
+        _go_suite,
+        _js_suite,
+        _pytest_args,
+        _suite_fields,
+    )
 
     suites: list[dict[str, Any]] = []
     if (root / "tests").is_dir():
-        command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests"]
+        pytest = [*PYTEST, *_pytest_args(defaults)]
+        # The locked copy, as `ohx init --lock-tests` and `ohx gate` run it (T95): an
+        # acceptance contract must not unlock the tests the change has to keep passing.
+        suites.append(
+            {
+                "id": "locked-tests",
+                "kind": "regression",
+                "mandatory": False,
+                "protected": os.path.relpath(root / "tests", root / "contracts"),
+                "protected_at": "tests",
+                "command": [*pytest, "{protected}"],
+            }
+        )
+        command = [*pytest, "tests"]
         suites.append({"id": "tests", "kind": "regression", "mandatory": False, "command": command})
     for lang, suite in (("js", _js_suite(root, defaults)), ("go", _go_suite(root))):
         if suite is not None:
@@ -1250,6 +1270,19 @@ def _run_mutant(
         if r.outcome != "pass":
             return "killed"
     return "survived" if probe.exists() else "not exercised"
+
+
+def _unlocked_limitations(body: dict[str, Any]) -> list[str]:
+    """Name suites that run from the working tree with no locked copy (T95)."""
+    suites = [o for o in body["obligations"] if o.get("kind") == "regression"]
+    others = [o for o in suites if not any("pytest" in str(a) for a in o.get("command", []))]
+    if not others or any("protected_store_path" in o for o in others):
+        return []
+    return [
+        "The TypeScript, JavaScript or Go tests ran from the working tree and are not locked"
+        " in this contract, so an edited test is not caught; `ohx init --lock-tests` or"
+        " `ohx gate` locks them"
+    ]
 
 
 def _regression_limitations(body: dict[str, Any]) -> list[str]:

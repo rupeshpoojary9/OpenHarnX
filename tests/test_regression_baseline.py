@@ -105,7 +105,7 @@ def test_regression_check_is_mandatory_and_named(
     repo = _make(tmp_path, monkeypatch)
     _fix_sub(repo)
     _, obligations = _verify(capsys)
-    assert obligations["no-new-failures"]["mandatory"] is True
+    assert obligations["no-new-failures-tests"]["mandatory"] is True
 
 
 def test_fix_with_a_failure_that_was_already_there_is_ready(
@@ -115,7 +115,7 @@ def test_fix_with_a_failure_that_was_already_there_is_ready(
     _fix_sub(repo)
     code, obligations = _verify(capsys)
     assert code == EXIT_OK
-    check = obligations["no-new-failures"]
+    check = obligations["no-new-failures-tests"]
     assert check["status"] == "pass"
     assert "test_known_broken" in str(check["note"])  # reported, not blocking
 
@@ -127,7 +127,7 @@ def test_fix_that_breaks_another_test_is_blocked(
     _fix_sub(repo, CALC.replace("return a * b", "return a * b + 1"))
     code, obligations = _verify(capsys)
     assert code == EXIT_BLOCKED
-    check = obligations["no-new-failures"]
+    check = obligations["no-new-failures-tests"]
     assert check["status"] == "fail"
     assert "test_mul" in " ".join(map(str, check["reasons"]))
     assert "test_add" not in " ".join(map(str, check["reasons"]))
@@ -142,8 +142,8 @@ def test_test_that_no_longer_runs_is_blocked(
     suite.write_text(suite.read_text().replace("def test_mul", "def helper_mul"))
     code, obligations = _verify(capsys)
     assert code == EXIT_BLOCKED
-    assert obligations["no-new-failures"]["status"] == "fail"
-    assert "test_mul" in " ".join(map(str, obligations["no-new-failures"]["reasons"]))
+    assert obligations["no-new-failures-tests"]["status"] == "fail"
+    assert "test_mul" in " ".join(map(str, obligations["no-new-failures-tests"]["reasons"]))
 
 
 def test_without_per_test_results_a_suite_failing_before_is_unknown(
