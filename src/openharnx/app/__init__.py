@@ -679,8 +679,24 @@ def _agent_cost(store: Store, contract_revision: str) -> str:
     return text
 
 
-def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
-    """Capture the candidate, run every obligation, evaluate the gate, write the report."""
+def _agent_work(store: Store, contract_revision: str, agent: dict[str, str] | None) -> str:
+    """Agent cost as recorded; a hook's session is named even though its cost is unknown."""
+    work = _agent_cost(store, contract_revision)
+    if agent is None or not work.startswith("unknown"):
+        return work
+    return (
+        f"unknown: Claude Code session {agent['session']} ran the agent, and Claude Code does"
+        " not give its cost to hooks; `claude -p --output-format json` reports it as"
+        " total_cost_usd"
+    )
+
+
+def verify(
+    cwd: Path, sandbox: str = "auto", agent: dict[str, str] | None = None
+) -> tuple[Record, Path]:
+    """Capture the candidate, run every obligation, evaluate the gate, write the report.
+
+    `agent` names the agent session that asked for the verification (the Stop hook, T98)."""
     root, pdir, store = _open(cwd)
     try:
         contract = store.latest("contract")
@@ -931,7 +947,7 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
         readiness, claims = _claims(
             contract.body, gate, baselines, regression_runs, READINESS[gate.result]
         )
-        report = {
+        report: dict[str, Any] = {
             "readiness": readiness,
             "claims": claims,
             "contract": {
@@ -954,6 +970,7 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
             "gate": {**_gate_to_dict(gate), "revision_id": gate_rec.revision_id},
             "observations": raw_obs,
             "evidence": evidence,
+            **({"agent": agent} if agent else {}),
             "obligation_kinds": {
                 ob["id"]: "builtin" if ob.get("builtin") else ob.get("kind", "check")
                 for ob in contract.body["obligations"]
@@ -963,7 +980,7 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
             "imported": imported,
             "protection": {"verifier": protection, "agent": "unknown: no agent run recorded"},
             "cost": {
-                "agent_work": _agent_cost(store, contract.revision_id),
+                "agent_work": _agent_work(store, contract.revision_id, agent),
                 "overhead": {
                     "model_calls": 0,
                     "verifier_ms": sum(o["duration_ms"] for o in raw_obs),

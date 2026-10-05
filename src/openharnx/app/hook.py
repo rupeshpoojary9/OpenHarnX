@@ -31,6 +31,15 @@ TIMEOUT_S = 900
 MAX_BLOCKS = 3
 STATE = "claude-stop.json"
 SHOWN = 8  # failing checks listed in the reason
+NAMED_TESTS = 10  # failing agreed tests named per check
+ERROR_LINES = 12  # error lines quoted per check
+LINE_CHARS = 200
+REASON_CHARS = 5500  # the whole reason, so a noisy failure cannot flood the agent's context
+NO_NEW_FAILURES = "no-new-failures-"
+# Lines in a checker's output that say what went wrong (pytest, node --test, Vitest, Go).
+ERROR_LINE = re.compile(
+    r"^\s*(E\s|FAILED |ERROR |--- FAIL|not ok |FAIL |✗|×)|AssertionError|Error:|panic:"
+)
 # First Claude Code to accept `additionalContext` from a Stop hook (its changelog, 2.1.163).
 FEEDBACK_SINCE = (2, 1, 163)
 
@@ -73,19 +82,77 @@ def install(cwd: Path) -> Path:
     return path
 
 
-def _reason(report: dict[str, Any]) -> str:
+# Where a locked copy ran: the run's tree view or the protected store copy. Error lines
+# name files there; the agent knows them by their place in the project.
+LOCKED_PREFIX = re.compile(r"(?:\.\./)*[^\s:]*?/(?:tree-[^/\s]+|protected/[0-9a-f]{16})/")
+
+
+def _errors(path: Path | None) -> list[str]:
+    """The lines of a check's output that say what failed; the last lines if none do."""
+    if path is None:
+        return []
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    found: list[str] = []
+    for raw in text.splitlines():
+        line = LOCKED_PREFIX.sub("", raw).strip()
+        if ERROR_LINE.search(line) and line not in found:
+            found.append(line)
+    if not found:
+        found = [line.strip() for line in text.splitlines() if line.strip()][-5:]
+    return [line if len(line) <= LINE_CHARS else line[: LINE_CHARS - 3] + "..." for line in found]
+
+
+def _reason(report: dict[str, Any], run_dir: Path) -> str:
+    """What the agent needs to fix a block (T98): each failing check, the agreed tests that
+    failed, the error lines and where the full output is; bounded in length."""
     notes = {o["obligation_id"]: o.get("note", "") for o in report.get("observations", [])}
+    evidence = report.get("evidence") or {}
+    per_test = report.get("acceptance_tests") or {}
+
+    def output(oid: str) -> Path | None:
+        ev = evidence.get(oid)
+        return run_dir / ev["file"] if ev else None
+
     failing = [o for o in report["gate"]["obligations"] if o["status"] != "pass" and o["mandatory"]]
     lines = [f"OpenHarnX: {verdict(report['readiness'])}. These checks did not pass:"]
+    shown: list[str] = []
     for o in failing[:SHOWN]:
-        detail = notes.get(o["obligation_id"]) or ", ".join(o["reasons"])
-        lines.append(f"- {o['obligation_id']}: {detail[:400]}")
-    lines.append(
+        oid = o["obligation_id"]
+        detail = notes.get(oid) or ", ".join(o["reasons"])
+        lines.append(f"- {oid}: {detail[:400]}")
+        failed = [t.rsplit("::", 1)[-1] for t, s in sorted((per_test.get(oid) or {}).items())
+                  if s == "fail"]  # fmt: skip
+        if failed:
+            more = f" and {len(failed) - NAMED_TESTS} more" if len(failed) > NAMED_TESTS else ""
+            lines.append(f"  Agreed tests that failed: {', '.join(failed[:NAMED_TESTS])}{more}")
+        source = oid.removeprefix(NO_NEW_FAILURES) if oid.startswith(NO_NEW_FAILURES) else oid
+        errors = _errors(output(source))
+        if errors and errors == shown:
+            lines.append("  Errors: the same as above")
+        elif errors:
+            lines.append("  Errors:")
+            lines += [f"    {e}" for e in errors[:ERROR_LINES]]
+            if len(errors) > ERROR_LINES:
+                lines.append(f"    and {len(errors) - ERROR_LINES} more error lines")
+            shown = errors
+        path = output(source)
+        if path is not None and path.is_file():
+            lines.append(f"  Full output: {path}")
+    if len(failing) > SHOWN:
+        lines.append(f"- and {len(failing) - SHOWN} more checks; see the report")
+    closing = (
         "The tests and check configuration are locked: editing, skipping or deleting a"
         " test does not change this result. Fix the code so the locked tests pass, then"
         " finish again."
     )
-    return "\n".join(lines)
+    body = "\n".join(lines)
+    room = REASON_CHARS - len(closing) - 80
+    if len(body) > room:
+        body = body[:room].rsplit("\n", 1)[0] + "\n... and more; read the full output files"
+    return f"{body}\n{closing}"
 
 
 def _claude_version() -> tuple[int, int, int] | None:
@@ -148,26 +215,36 @@ def claude_stop(stdin: str, cwd: Path, sandbox: str = "auto") -> dict[str, Any]:
             " run `ohx init --lock-tests` to lock its tests."
         }
     blocked = _attempts(pdir, session, bool(event.get("stop_hook_active")))
-    record, run_dir = verify(where, sandbox=sandbox)
+    agent = {"tool": "claude-code", "session": session} if session else None
+    record, run_dir = verify(where, sandbox=sandbox, agent=agent)
     report = record.body
+    where_report = f"Report: {run_dir / 'report.md'}"
     if report["readiness"] in PASSING:
         _record(pdir, session, 0)
         if report["readiness"] != NO_REGRESSIONS:
-            return {}
+            return {
+                "systemMessage": "OpenHarnX: READY. Every check passed, the agreed acceptance"
+                f" tests included. {where_report}"
+            }
         still = len(report["claims"]["still_failing"])
         return {
             "systemMessage": "OpenHarnX: NO REGRESSIONS. Nothing that passed before broke,"
             " but no acceptance tests define the task, so it is not shown to be done"
             + (f"; {still} locked test(s) still fail as before." if still else ".")
+            + f" {where_report}"
         }
     if blocked >= MAX_BLOCKS:
         _record(pdir, session, 0)
         return {
             "systemMessage": f"OpenHarnX: still {verdict(report['readiness'])} after"
-            f" {MAX_BLOCKS} attempts; the agent stopped. Report: {run_dir / 'report.md'}"
+            f" {MAX_BLOCKS} attempts; the agent stopped. {where_report}"
         }
     _record(pdir, session, blocked + 1)
-    return _send_back(_reason(report))
+    return {
+        **_send_back(_reason(report, run_dir)),
+        "systemMessage": f"OpenHarnX: {verdict(report['readiness'])} (attempt {blocked + 1}"
+        f" of {MAX_BLOCKS}); sent back to the agent with what failed. {where_report}",
+    }
 
 
 def main_stop(sandbox: str) -> dict[str, Any]:
