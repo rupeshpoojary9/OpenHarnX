@@ -30,6 +30,7 @@ from openharnx.app import (
     _toml_value,
     accept_contract,
     init_project,
+    project_python,
     verify,
 )
 from openharnx.app import approval as approvals
@@ -87,6 +88,7 @@ def _gate_contract(
     scratch: Path | None = None,
     working_tree: bool = False,
     approved: approvals.Approval | None = None,
+    project: Path | None = None,
 ) -> dict[str, Any]:
     """The contract the base implies: its tests locked, its own checks, its policy.
 
@@ -182,6 +184,10 @@ def _gate_contract(
     for key in ("python", "environment"):
         if key in defaults:
             raw[key] = defaults[key]
+    if "python" not in raw and "environment" not in raw:
+        found = project_python(project or base)  # the project's own environment (T94)
+        if found:
+            raw["python"] = found
     if approved is not None:
         raw |= {f"approved_{k}": v for k, v in approvals.as_dict(approved).items()}
     raw["obligations"] = obligations
@@ -314,7 +320,7 @@ def gate(
                 raise UsageError(f"{contract} does not exist in the base commit {base_sha[:12]}")
         else:
             contract_file = work / "gate-contract.toml"
-            raw = _gate_contract(base, base_sha, head_sha, approved=approved)
+            raw = _gate_contract(base, base_sha, head_sha, approved=approved, project=root)
             _write_contract(raw, contract_file)
         init_project(root)
         accept_contract(root, contract_file, sandbox=sandbox, baseline_root=base)

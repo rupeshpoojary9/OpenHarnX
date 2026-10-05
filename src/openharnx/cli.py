@@ -58,6 +58,10 @@ def _cmd_doctor(_: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+# Causes that mean the checker's interpreter is wrong, not the project's tests (T94).
+ENVIRONMENT_CAUSES = ("is not installed outside the candidate", "No module named")
+
+
 def _cmd_init(args: argparse.Namespace) -> int:
     pdir, record = init_project(Path.cwd())
     print(f"project {record.entity_id}")
@@ -69,6 +73,33 @@ def _cmd_init(args: argparse.Namespace) -> int:
             mandatory = "mandatory" if ob["mandatory"] else "advisory"
             print(f"  {ob['id']:<28} {mandatory}")
         print("run `ohx verify` after any change; lock again to accept a deliberate test change")
+        broken = {
+            oid: b
+            for oid, b in accepted.body.get("regression_baseline", {}).items()
+            if b["outcome"] not in ("pass", "fail")
+        }
+        if broken:
+            python = accepted.body.get("python", "unknown")
+            used = sys.executable if python == "unknown" else python
+            environment = False
+            for oid, b in broken.items():
+                cause = b.get("cause") or "no output"
+                print(
+                    f"ohx: the {oid!r} suite could not run ({b['outcome']}): {cause}",
+                    file=sys.stderr,
+                )
+                environment = environment or any(m in cause for m in ENVIRONMENT_CAUSES)
+            if environment:  # the interpreter lacks the checker or a dependency
+                print(
+                    f"ohx: checks run with {used}. If that is not the interpreter with your"
+                    ' test dependencies, set it in ohx.toml (python = ".venv/bin/python") and'
+                    " run `ohx init --lock-tests` again.",
+                    file=sys.stderr,
+                )
+                return EXIT_BLOCKED
+            # The project's own tests cannot run yet (they import code the task will add):
+            # locked anyway; a later run counts once the whole suite passes (T89).
+            print("ohx: locked anyway: a later run counts once every test passes", file=sys.stderr)
     return EXIT_OK
 
 

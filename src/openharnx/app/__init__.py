@@ -303,6 +303,8 @@ def new_contract(
     raw: dict[str, Any] = {"title": title, "mode": mode, "change_summary": summary}
     if "python" in defaults:
         raw["python"] = defaults["python"]
+    elif "environment" not in defaults and project_python(root):
+        raw["python"] = project_python(root)
     if "environment" in defaults:
         raw["environment"] = defaults["environment"]
     raw["obligations"] = obligations
@@ -432,7 +434,7 @@ def _regression_run(
     python: str,
     protected: Path | None = None,
     modules: Path | None = None,
-) -> tuple[str, dict[str, str] | None]:
+) -> tuple[str, dict[str, str] | None, str]:
     junit = run_dir / "tmp" / f"junit-{ob['id']}.xml"
     if protected is not None and ob.get("protected_at"):
         at = ob["protected_at"]
@@ -441,13 +443,13 @@ def _regression_run(
                 build_manifest(root), root, protected, at, run_dir / f"tree-{ob['id']}", modules
             )
         except _TreeChanged:
-            return "invalid", None
+            return "invalid", None, "the tree changed while it was copied"
         protected = root / at
     elif modules is not None:
         try:
             root = _modules_view(build_manifest(root), root, modules, run_dir / f"tree-{ob['id']}")
         except _TreeChanged:
-            return "invalid", None
+            return "invalid", None, "the tree changed while it was copied"
     r = run_obligation(
         ob,
         candidate=root,
@@ -458,7 +460,7 @@ def _regression_run(
         python=python,
         extra_env=junit_env(junit),
     )
-    return r.outcome, read_results(junit, root) or read_go_results(r.output)
+    return r.outcome, read_results(junit, root) or read_go_results(r.output), _cause(r.output)
 
 
 def _regression_baselines(
@@ -487,8 +489,12 @@ def _regression_baselines(
             baselines[ob["id"]] = regression_baseline(env_outcome, None)
         else:
             protected = pdir / ob["protected_store_path"] if "protected_store_path" in ob else None
-            ran = _regression_run(ob, root, run_dir, srt, python, protected, modules)
-            baselines[ob["id"]] = regression_baseline(*ran)
+            outcome, tests, cause = _regression_run(
+                ob, root, run_dir, srt, python, protected, modules
+            )
+            baselines[ob["id"]] = regression_baseline(outcome, tests)
+            if outcome not in ("pass", "fail"):
+                baselines[ob["id"]]["cause"] = cause  # shown by `ohx init --lock-tests` (T94)
         obligations.append(_no_new_failures(ob["id"], len(advisory) == 1))
     return baselines
 
@@ -855,6 +861,8 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                     ob_protection = "not enforced: the srt sandbox did not start this checker"
                 if foreign:
                     outcome, note = "invalid", wrong_code[ob["id"]]
+                elif outcome in ("crash", "timeout") and not note:
+                    note = _cause(r.output)
             raw_obs.append(
                 {
                     "obligation_id": ob["id"],
@@ -950,6 +958,28 @@ def _with_where(
     theirs = (extra or {}).get("PYTEST_ADDOPTS") or env.get("PYTEST_ADDOPTS", "")
     addopts = f"{where['PYTEST_ADDOPTS']} {theirs}".strip()
     return {**(extra or {}), **where, "PYTEST_ADDOPTS": addopts}
+
+
+def _cause(output: bytes) -> str:
+    """Why a checker crashed, in one line from its own output (T94): its last line that
+    names an error, else its last line."""
+    lines = [x.strip() for x in output.decode(errors="replace").splitlines() if x.strip()]
+    if not lines:
+        return ""
+    named = [x for x in lines if x.startswith("ohx:") or "Error" in x or "error:" in x]
+    return (named or lines)[-1][:300]
+
+
+def project_python(root: Path) -> str | None:
+    """The project's own interpreter when ohx.toml names none (T94): its .venv or venv,
+    else the active virtual environment. None leaves OpenHarnX's own interpreter."""
+    for folder in (".venv", "venv"):
+        if (root / folder / "bin" / "python").exists():
+            return str(root / folder / "bin" / "python")
+    active = os.environ.get("VIRTUAL_ENV")
+    if active and (Path(active) / "bin" / "python").exists():
+        return str(Path(active) / "bin" / "python")
+    return None
 
 
 def _default_suites(root: Path, defaults: dict[str, Any]) -> list[dict[str, Any]]:
