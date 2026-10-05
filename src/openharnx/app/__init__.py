@@ -180,6 +180,11 @@ def accept_contract(
             "documentation_obligations": ["assurance_report", "changelog_entry"],
             "obligations": obligations,
             **({"environment": environment} if environment else {}),
+            **(
+                {"mutation_budget_s": raw["mutation_budget_s"]}
+                if "mutation_budget_s" in raw
+                else {}
+            ),
             "weakening_baseline": weakening_snapshot(base, _files(accepted_tree)),
             "accepted_by": git_user(root),
             "accepted_paths": sorted(
@@ -308,6 +313,8 @@ def new_contract(
         raw["python"] = project_python(root)
     if "environment" in defaults:
         raw["environment"] = defaults["environment"]
+    if "mutation_budget_s" in defaults:
+        raw["mutation_budget_s"] = defaults["mutation_budget_s"]
     raw["obligations"] = obligations
     errors = validate_contract(raw)
     if errors:
@@ -372,6 +379,9 @@ MUTATION_OBLIGATION: dict[str, Any] = {
     "timeout_s": 300,
     "env": {},
 }
+# Seconds the mutation check may spend unless the contract says otherwise (T97). No mutant
+# starts once the acceptance tests' own run time would take the check past it.
+MUTATION_BUDGET_S = 120
 DENY_READ = ["~/.ssh"]  # plus the keys directory, see _deny_read
 
 
@@ -772,7 +782,7 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                 note = env_note
             elif ob.get("builtin") == MUTATION:
                 outcome, note, out, ms = _mutation_check(
-                    contract.body, raw_obs, before, root, pdir, run_dir, srt, python
+                    contract.body, raw_obs, before, root, pdir, run_dir, srt, python, imported
                 )
                 exit_code, argv = None, ob["command"]
             elif note:
@@ -1271,11 +1281,14 @@ def _mutation_check(
     run_dir: Path,
     srt: Path | None,
     python: str,
+    imported: dict[str, list[str]] | None = None,
 ) -> tuple[str, str, bytes, int]:
     """Run the acceptance tests against mutants of the change's own lines (T87 item 5).
 
     Mutants run one at a time in a copy of the tree at a fixed place in the store, so a
-    protected checker environment can be built once for that copy and import from it."""
+    protected checker environment can be built once for that copy and import from it.
+    Only changed files the acceptance tests imported are mutated, when every acceptance
+    run recorded its imports, and no mutant starts past the time budget (T97)."""
     start = time.monotonic()
 
     def done(outcome: str, note: str, out: bytes = b"") -> tuple[str, str, bytes, int]:
@@ -1289,11 +1302,32 @@ def _mutation_check(
     if not base:
         return done("unavailable", "no base commit to compare the change with")
     try:
-        chosen = select_mutants(root, changed_lines(root, base, _files(manifest)))
+        changed = changed_lines(root, base, _files(manifest))
+    except (ValueError, OSError, UnicodeDecodeError) as exc:
+        return done("unavailable", f"the changed lines are unknown: {exc}")
+    skipped: list[str] = []
+    if imported is not None and all(ob["id"] in imported for ob in acceptance):
+        reached = {p for ob in acceptance for p in imported[ob["id"]]}
+        skipped = sorted(p for p in changed if p.endswith(".py") and p not in reached)
+        changed = {p: lines for p, lines in changed.items() if p not in skipped}
+    unreached = (
+        f"changed files no acceptance test imported were not mutated: {', '.join(skipped)}"
+        if skipped
+        else ""
+    )
+    try:
+        chosen = select_mutants(root, changed)
     except (ValueError, OSError, UnicodeDecodeError) as exc:
         return done("unavailable", f"the changed lines are unknown: {exc}")
     if not chosen:
-        return done("unavailable", "no changed source lines to mutate (Python only)")
+        return done("unavailable", unreached or "no changed source lines to mutate (Python only)")
+    budget = float(body.get("mutation_budget_s", MUTATION_BUDGET_S))
+    accepted_ids = {ob["id"] for ob in acceptance}
+    one_run = sum(o["duration_ms"] for o in raw_obs if o["obligation_id"] in accepted_ids) / 1000
+    over = (
+        f"the time budget of {budget:g} s would run out (the acceptance tests take"
+        f" {one_run:.0f} s a run); raise mutation_budget_s in ohx.toml to run more"
+    )
 
     work = pdir / "mutation"
     work.mkdir(parents=True, exist_ok=True)
@@ -1318,6 +1352,9 @@ def _mutation_check(
                 return done("unavailable", f"no checker environment for the copy: {exc}")
         results: list[tuple[Mutant, str]] = []
         for k, mutant in enumerate(chosen):
+            if time.monotonic() - start + one_run > budget:
+                results += [(m, "over budget") for m in chosen[k:]]
+                break
             target = tree / mutant.path
             original = target.read_bytes()
             target.write_text(mutant.source, encoding="utf-8")
@@ -1335,8 +1372,13 @@ def _mutation_check(
     killed, survived = named("killed"), named("survived")
     exercised = len(killed) + len(survived)
     extra = [f"{n} {label}" for label in ("not exercised", "not run") if (n := len(named(label)))]
-    out = "\n".join(f"{s}: {m.path}:{m.line} `{m.before}` -> `{m.after}`" for m, s in results)
-    tail = f"; {', '.join(extra)}" if extra else ""
+    if late := len(named("over budget")):
+        extra.append(f"{late} not run: {over}")
+    if unreached:
+        extra.append(unreached)
+    ran = [(m, s) for m, s in results if s != "over budget"]
+    out = "\n".join(f"{s}: {m.path}:{m.line} `{m.before}` -> `{m.after}`" for m, s in ran)
+    tail = f"; {'; '.join(extra)}" if extra else ""
     if survived:
         note = (
             f"{len(survived)} of {exercised} mutants of changed lines survived: "
@@ -1349,6 +1391,10 @@ def _mutation_check(
             "pass",
             f"{len(killed)} of {exercised} mutants of changed lines killed{tail}",
             out.encode(),
+        )
+    if not ran:
+        return done(
+            "unavailable", f"no mutant ran: {over}" + (f"; {unreached}" if unreached else "")
         )
     return done(
         "unavailable",

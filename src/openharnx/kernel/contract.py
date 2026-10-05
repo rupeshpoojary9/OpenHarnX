@@ -36,6 +36,11 @@ def validate_contract(raw: Mapping[str, Any]) -> list[str]:
     environment = raw.get("environment")
     if environment is not None and environment not in ENVIRONMENTS:
         errors.append(f"environment: must be one of {sorted(ENVIRONMENTS)}")
+    budget = raw.get("mutation_budget_s")
+    if budget is not None and (
+        isinstance(budget, bool) or not isinstance(budget, (int, float)) or budget <= 0
+    ):
+        errors.append("mutation_budget_s: must be a positive number of seconds")
 
     obligations = raw.get("obligations")
     if not isinstance(obligations, list) or not obligations:
