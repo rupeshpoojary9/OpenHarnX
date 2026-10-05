@@ -86,14 +86,20 @@ def where_env(folder: Path, names: list[str], pythonpath: str = "") -> dict[str,
     }
 
 
-def foreign_code(folder: Path, modules: dict[str, str], candidate: Path, ran_in: Path) -> list[str]:
-    """Project modules the run loaded from outside the candidate with other content."""
+def loaded_modules(folder: Path) -> dict[str, str]:
+    """The project's modules a run loaded, name to file, from every pytest process."""
     loaded: dict[str, str] = {}
     for record in sorted(folder.glob("where-*.json")):
         try:
             loaded |= json.loads(record.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
+    return loaded
+
+
+def foreign_code(folder: Path, modules: dict[str, str], candidate: Path, ran_in: Path) -> list[str]:
+    """Project modules the run loaded from outside the candidate with other content."""
+    loaded = loaded_modules(folder)
     inside = [candidate.resolve(), ran_in.resolve()]
     problems = []
     for name, path in sorted(loaded.items()):

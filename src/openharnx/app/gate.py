@@ -278,6 +278,14 @@ def lock_tests(cwd: Path, sandbox: str = "auto") -> tuple[Record, dict[str, Any]
     return record, raw
 
 
+def _compare_url(base: str, head: str) -> str | None:
+    """Where the pull request's diff can be read, on GitHub Actions (T96)."""
+    server, repository = os.environ.get("GITHUB_SERVER_URL"), os.environ.get("GITHUB_REPOSITORY")
+    if not server or not repository:
+        return None
+    return f"{server}/{repository}/compare/{base}...{head}"
+
+
 def gate(
     cwd: Path,
     base_ref: str,
@@ -324,9 +332,15 @@ def gate(
             _write_contract(raw, contract_file)
         init_project(root)
         accept_contract(root, contract_file, sandbox=sandbox, baseline_root=base)
-        record, _ = verify(root, sandbox=sandbox)
+        record, run_dir = verify(root, sandbox=sandbox)
         report = dict(record.body)
         report["ci"] = {"base_ref": base_ref, "base_commit": base_sha, "head_commit": head_sha}
+        report["changes"] = {**report["changes"], "base_commit": base_sha}
+        compare = _compare_url(base_sha, head_sha)
+        if compare:
+            report["changes"]["compare_url"] = compare
+        if (run_dir / "evidence").is_dir():  # the brief links to it; the store goes away
+            shutil.copytree(run_dir / "evidence", out / "evidence", dirs_exist_ok=True)
         if looked_up is not None:
             report["approval"] = (
                 approvals.as_dict(approved)

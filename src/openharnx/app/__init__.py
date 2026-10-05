@@ -5,6 +5,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -47,7 +48,7 @@ from openharnx.signing import (
 from openharnx.signing import message as signed_message
 from openharnx.store import Record, Store
 from openharnx.verify import run_obligation
-from openharnx.verify.where import foreign_code, project_files, where_env
+from openharnx.verify.where import foreign_code, loaded_modules, project_files, where_env
 from openharnx.weakening import JS_SOURCE, active_checkers, is_test_file
 from openharnx.weakening import compare as compare_weakening
 from openharnx.weakening import snapshot as weakening_snapshot
@@ -704,6 +705,8 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
         order_runs: dict[str, list[str]] = {}
         wrong_code: dict[str, str] = {}  # obligation id: why it ran other code (T90c)
         project_modules = project_files(_files(before))
+        acceptance_tests: dict[str, dict[str, str] | None] = {}  # per-test results (T96)
+        imported: dict[str, list[str]] = {}  # changed-or-not project files each run loaded
 
         observations: list[Observation] = []
         raw_obs: list[dict[str, Any]] = []
@@ -809,7 +812,8 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                         }
                     )
                     continue
-                extra = junit_env(junit) if ob["id"] in baselines else None
+                per_test = ob["id"] in baselines or ob.get("kind") == "acceptance"
+                extra = junit_env(junit) if per_test else None
                 where_dir = None
                 if project_modules and any("pytest" in str(a) for a in ob["command"]):
                     where_dir = run_dir / "tmp" / f"where-{ob['id']}"
@@ -825,6 +829,18 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                     extra_env=extra,
                 )
                 foreign = foreign_code(where_dir, project_modules, root, where) if where_dir else []
+                if where_dir and any(where_dir.glob("where-*.json")):
+                    imported[ob["id"]] = sorted(
+                        {
+                            project_modules[n]
+                            for n in loaded_modules(where_dir)
+                            if n in project_modules
+                        }
+                    )
+                if ob.get("kind") == "acceptance":
+                    acceptance_tests[ob["id"]] = read_results(junit, where) or read_go_results(
+                        r.output
+                    )
                 if foreign:
                     wrong_code[ob["id"]] = (
                         f"the check ran other code than the candidate's: "
@@ -886,10 +902,14 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
 
         after = build_manifest(root)
         mutated = after["digest"] != before["digest"]
+        evidence: dict[str, dict[str, str]] = {}
         for o in raw_obs:
             if mutated:
                 o["outcome"], o["note"] = "invalid", "candidate changed during verification"
-            store.append("observation", o, now=now_utc())
+            seen = store.append("observation", o, now=now_utc())
+            evidence[o["obligation_id"]] = _evidence_file(
+                store, o["obligation_id"], o["output_blob"], seen.revision_id, run_dir
+            )
             observations.append(
                 Observation(o["obligation_id"], o["subject_digest"], o["outcome"], o["note"])
             )
@@ -909,6 +929,9 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
                 "title": contract.body["title"],
                 "governance_level": contract.body["governance_level"],
                 "policy_version": contract.body["policy_version"],
+                "mode": contract.body["mode"],
+                "summary": contract.body["change_summary"],
+                "accepted_by": contract.body.get("accepted_by"),
             },
             "candidate": {
                 "revision_id": candidate.revision_id,
@@ -920,6 +943,14 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
             },
             "gate": {**_gate_to_dict(gate), "revision_id": gate_rec.revision_id},
             "observations": raw_obs,
+            "evidence": evidence,
+            "obligation_kinds": {
+                ob["id"]: "builtin" if ob.get("builtin") else ob.get("kind", "check")
+                for ob in contract.body["obligations"]
+            },
+            "changes": _changes(store, contract.body, before),
+            "acceptance_tests": acceptance_tests,
+            "imported": imported,
             "protection": {"verifier": protection, "agent": "unknown: no agent run recorded"},
             "cost": {
                 "agent_work": _agent_cost(store, contract.revision_id),
@@ -930,8 +961,14 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
             },
             "changelog_entry": f"- {contract.body['change_summary']}",
             "limitations": [
-                f"{before['ignored_present']} ignored file(s) present and not in the candidate"
-                " identity",
+                *(
+                    [
+                        f"{before['ignored_present']} ignored file(s) present and not in the"
+                        " candidate identity"
+                    ]
+                    if before["ignored_present"]
+                    else []
+                ),
                 *_interpreter_limitations(environment, python, root),
                 *_node_modules_limitations(contract.body, root),
                 *_regression_limitations(contract.body),
@@ -947,6 +984,86 @@ def verify(cwd: Path, sandbox: str = "auto") -> tuple[Record, Path]:
         return rec, run_dir
     finally:
         store.close()
+
+
+def _evidence_file(
+    store: Store, obligation_id: str, blob: str, record: str, run_dir: Path
+) -> dict[str, str]:
+    """A readable copy of a check's recorded output next to the report, which the review
+    brief links to (T96); the blob digest and observation record say which it is."""
+    name = re.sub(r"[^A-Za-z0-9_.-]", "_", obligation_id)
+    rel = f"evidence/{name}.txt"
+    target = run_dir / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(store.blob_path(blob), target)
+    return {"file": rel, "output": blob, "record": record}
+
+
+# What a changed file is, for the reviewer (T96). Dependencies and the files that decide
+# what the checks do are put to the reviewer as decisions.
+DEPENDENCY_FILES = frozenset(
+    {"uv.lock", "poetry.lock", "pipfile", "pipfile.lock", "package.json", "package-lock.json",
+     "pnpm-lock.yaml", "yarn.lock", "go.mod", "go.sum", "cargo.toml", "cargo.lock", "gemfile",
+     "gemfile.lock"}
+)  # fmt: skip
+CONFIGURATION_FILES = frozenset(
+    {"ohx.toml", "pyproject.toml", "setup.cfg", "setup.py", "tox.ini", "pytest.ini",
+     "conftest.py", "noxfile.py", "mypy.ini", "ruff.toml", ".ruff.toml", "makefile",
+     ".pre-commit-config.yaml", "action.yml", ".importlinter", ".coveragerc"}
+)  # fmt: skip
+CONFIGURATION_PREFIXES = (".github/", ".gitlab-ci", "contracts/", ".circleci/", "jenkinsfile")
+CODE_SUFFIXES = (".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java",
+                 ".kt", ".rb", ".c", ".h", ".cc", ".cpp", ".cs", ".swift", ".sh")  # fmt: skip
+CONFIG_NAME = re.compile(
+    r"^(jest|vitest|vite|webpack|babel|eslint|prettier|tsconfig|karma|playwright)[.\w-]*$"
+    r"|^\.(eslintrc|prettierrc|babelrc)"
+)
+
+
+def change_kind(path: str) -> str:
+    name = path.rsplit("/", 1)[-1].lower()
+    lowered = path.lower()
+    if name in DEPENDENCY_FILES or re.match(r"requirements.*\.(txt|in)$", name):
+        return "dependencies"
+    if (
+        name in CONFIGURATION_FILES
+        or lowered.startswith(CONFIGURATION_PREFIXES)
+        or CONFIG_NAME.match(name)
+    ):
+        return "configuration"
+    if is_test_file(path) or any(
+        part in ("tests", "test", "__tests__", "spec") for part in path.split("/")[:-1]
+    ):
+        return "test"
+    if name.endswith(CODE_SUFFIXES):
+        return "code"
+    if name.endswith((".md", ".rst", ".txt", ".adoc")):
+        return "docs"
+    return "other"
+
+
+def _changes(store: Store, body: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
+    """Files that differ from the files accepted with the contract: the task's change, as
+    observed by content digest (T96). In CI the accepted files are the base commit's."""
+    blob = body.get("accepted_manifest_blob")
+    try:
+        accepted = json.loads(store.blob_path(blob).read_bytes()) if blob else None
+    except (OSError, ValueError):
+        accepted = None
+    if accepted is None:
+        return {"known": False, "files": []}
+    then = {e["path"]: e for e in accepted["entries"]}
+    now = {e["path"]: e for e in manifest["entries"]}
+    files = []
+    for path in changed_paths(accepted, manifest):
+        if path not in then or then[path].get("type") == "deleted":
+            change = "added"
+        elif path not in now or now[path].get("type") == "deleted":
+            change = "deleted"
+        else:
+            change = "modified"
+        files.append({"path": path, "change": change, "kind": change_kind(path)})
+    return {"known": True, "base_commit": accepted.get("base_commit", "unknown"), "files": files}
 
 
 def _with_where(

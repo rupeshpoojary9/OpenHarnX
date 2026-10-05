@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from openharnx.report.brief import render_brief
+
 READINESS = {
     "pass": "ready",
     "fail": "blocked",
@@ -127,6 +129,9 @@ def render_markdown(report: dict[str, Any]) -> str:
             "",
         ]
     lines += [
+        *render_brief(report),
+        "## Details",
+        "",
         f"- Contract: {report['contract']['title']} ({report['contract']['revision_id']})",
         f"- Candidate: `{cand['digest']}` (base commit {cand['base_commit']})",
         *_ci_line(report),
