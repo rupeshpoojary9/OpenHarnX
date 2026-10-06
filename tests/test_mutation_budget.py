@@ -119,8 +119,11 @@ def test_no_mutant_starts_once_the_budget_would_run_out(
     (repo / "calc.py").write_text(FIXED)
     report, mutation = _verify(tmp_path)
     assert report["readiness"] == "ready"  # advisory: the verdict does not change
-    assert "not run: the time budget of 3 s" in mutation["note"]
-    assert "mutation_budget_s" in mutation["note"]
+    note = mutation["note"]
+    assert "the time budget of 3 s" in note and "mutation_budget_s" in note
+    # How many mutants fit in 3 s depends on the machine: on a slow CI runner one
+    # acceptance run alone takes longer, and none starts (2026-10-06, run 37484375324).
+    assert "not run" in note or "no mutant ran" in note
     assert mutation["duration_ms"] < 8000
 
 
