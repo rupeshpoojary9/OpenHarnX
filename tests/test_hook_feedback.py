@@ -206,3 +206,86 @@ def test_verify_without_the_hook_names_no_agent(repo: Path, tmp_path: Path) -> N
     report = _latest(tmp_path)
     assert "agent" not in report
     assert report["cost"]["agent_work"] == "unknown: no agent run recorded"
+
+
+def test_with_one_regression_suite_the_agent_still_gets_its_error_lines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Found in review (2026-10-06): with exactly one regression suite the comparison is
+    named plain `no-new-failures`, and the hook read that check's own output (only its
+    note) instead of the suite's, so the agent got no assertion lines. The suite is now
+    found through the comparison's recorded `of`, not by parsing its id."""
+    repo = tmp_path / "single"
+    (repo / "tests").mkdir(parents=True)
+    (repo / "acceptance").mkdir()
+    (repo / "calc.py").write_text(CALC)
+    (repo / "tests" / "test_calc.py").write_text(SUITE)
+    (repo / "acceptance" / "test_half.py").write_text(ACCEPTANCE)
+    suite = '["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests"]'
+    (repo / "ohx.toml").write_text(
+        f'python = {sys.executable!r}\n\n[[obligations]]\nid = "suite"\n'
+        f'kind = "regression"\nmandatory = false\ncommand = {suite}\n'
+    )
+    _git(repo, "init", "-q")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "base")
+    monkeypatch.setenv("OHX_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("OHX_SIGNING_KEY", "none")
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    monkeypatch.chdir(repo)
+    bindir = tmp_path / "fake-bin"
+    bindir.mkdir()
+    (bindir / "claude").write_text("#!/bin/sh\necho '2.1.281 (Claude Code)'\n")
+    (bindir / "claude").chmod(0o755)
+    monkeypatch.setenv("PATH", str(bindir) + os.pathsep + os.environ["PATH"])
+    assert main(["init"]) == EXIT_OK
+    args = ["contract", "new", "--mode", "bugfix", "--title", "Fix half", "--summary", "s"]
+    args += ["--acceptance", "acceptance/test_half.py", "--accept", "--sandbox", "none"]
+    assert main(args) == EXIT_OK
+    (repo / "calc.py").write_text(FIXED.replace("a + b", "a - b"))
+    reason = _sent_back(_stop(monkeypatch, capsys, repo))
+    assert reason is not None
+    report = _latest(tmp_path)
+    assert report["compares"] == {"no-new-failures": "suite"}
+    assert "- no-new-failures:" in reason
+    assert "assert -1 == 5" in reason  # the suite's own error line, not the note again
+    full = re.findall(r"Full output: (\S+)", reason)
+    assert any(p.endswith("evidence/suite.txt") for p in full)
+    markdown = next(Path(p).parent.parent / "report.md" for p in full)
+    assert "every test in `suite` that passed before passes" not in markdown.read_text()
+    assert "`no-new-failures` (built-in, mandatory)" not in _verified(markdown.read_text())
+
+
+def _verified(markdown: str) -> str:
+    start = markdown.index("## What was verified")
+    return markdown[start : markdown.index("\n## ", start + 1)]
+
+
+def test_the_brief_names_the_one_suite_a_passing_comparison_covered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from openharnx.report import render_markdown
+
+    report = {
+        "readiness": "ready",
+        "claims": None,
+        "contract": {"title": "t", "revision_id": "r"},
+        "candidate": {"digest": "sha256:x", "base_commit": "b",
+                      "changed_during_verification": False, "changed_paths": []},
+        "gate": {
+            "result": "pass",
+            "coverage_percent": 100,
+            "obligations": [
+                {"obligation_id": "no-new-failures", "mandatory": True, "status": "pass",
+                 "reasons": []},
+            ],
+        },
+        "observations": [{"obligation_id": "no-new-failures", "note": "", "argv": None}],
+        "compares": {"no-new-failures": "suite"},
+        "protection": {"verifier": "enforced"},
+        "cost": {"agent_work": "unknown", "overhead": {"model_calls": 0, "verifier_ms": 0}},
+        "changelog_entry": "- s",
+        "limitations": [],
+        "authorizes": "nothing",
+    }  # fmt: skip
+    assert "every test in `suite` that passed before passes" in render_markdown(report)

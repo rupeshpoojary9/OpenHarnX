@@ -16,7 +16,7 @@ LISTED_FILES = 40
 LISTED_TESTS = 20
 NOTE_CHARS = 240
 ORDER = {"acceptance": 0, "builtin": 1, "regression": 2, "check": 3}
-NO_NEW_FAILURES = "no-new-failures-"
+NO_NEW_FAILURES = "no-new-failures"
 BUILTIN = {
     "weakening": "no removed test or assertion, new skip, new suppression or loosened check"
     " configuration was found",
@@ -26,6 +26,17 @@ PASSING_CAVEAT = (
     " with a passing test is not thereby fully tested. The mutation check, where it ran, is"
     " the only measure here of how much the tests notice."
 )
+
+
+def compared(report: dict[str, Any], oid: str) -> str:
+    """The suite a no-new-failures comparison covers, from the record; the obligation itself
+    when it is not one. Reports from before `compares` was recorded fall back to the id,
+    which names the suite only when there are several (`no-new-failures-<suite>`)."""
+    recorded = report.get("compares")
+    if recorded is not None:
+        return str(recorded.get(oid, oid))
+    prefix = f"{NO_NEW_FAILURES}-"
+    return oid.removeprefix(prefix) if oid.startswith(prefix) else oid
 
 
 def _short(text: str, limit: int = NOTE_CHARS) -> str:
@@ -196,8 +207,8 @@ def _verified(report: dict[str, Any]) -> list[str]:
             what = f"passed: {_short(notes[oid])}"
         elif oid in BUILTIN:
             what = BUILTIN[oid]
-        elif oid.startswith(NO_NEW_FAILURES):
-            what = f"every test in `{oid.removeprefix(NO_NEW_FAILURES)}` that passed before passes"
+        elif compared(report, oid) != oid:
+            what = f"every test in `{compared(report, oid)}` that passed before passes"
         lines.append(f"- `{oid}` ({role}, {level}): {what}{_evidence(report, oid)}")
     if not passed:
         lines.append("Nothing passed.")

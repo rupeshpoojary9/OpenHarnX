@@ -971,6 +971,13 @@ def verify(
             "observations": raw_obs,
             "evidence": evidence,
             **({"agent": agent} if agent else {}),
+            # Which suite each no-new-failures comparison covers: its id is plain
+            # `no-new-failures` when there is one suite, so readers must not parse it.
+            "compares": {
+                ob["id"]: ob["of"]
+                for ob in contract.body["obligations"]
+                if ob.get("builtin") == NO_NEW_FAILURES
+            },
             "obligation_kinds": {
                 ob["id"]: "builtin" if ob.get("builtin") else ob.get("kind", "check")
                 for ob in contract.body["obligations"]

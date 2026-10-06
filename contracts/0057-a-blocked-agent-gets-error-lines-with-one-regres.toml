@@ -1,0 +1,43 @@
+title = "A blocked agent gets error lines with one regression suite"
+mode = "bugfix"
+change_summary = "The hook and the brief find the suite a no-new-failures comparison covers through its recorded of field, not by parsing its id, so a contract with one regression suite (named plain no-new-failures) sends the suite's error lines and output path (T98 fix)."
+python = ".venv/bin/python"
+environment = "uv"
+
+[[obligations]]
+id = "acceptance-test_hook_feedback"
+kind = "acceptance"
+mandatory = true
+protected = "../tests/test_hook_feedback.py"
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "{protected}"]
+
+[[obligations]]
+id = "format"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "format", "--check", "--no-cache", "."]
+
+[[obligations]]
+id = "lint"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "check", "--no-cache", "."]
+
+[[obligations]]
+id = "types"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "mypy", "--cache-dir", "{tmp}/mypy"]
+
+[[obligations]]
+id = "layers"
+kind = "check"
+mandatory = true
+command = ["{bindir}/lint-imports", "--no-cache"]
+
+[[obligations]]
+id = "tests"
+kind = "regression"
+mandatory = true
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "-n", "auto"]
+timeout_s = 600

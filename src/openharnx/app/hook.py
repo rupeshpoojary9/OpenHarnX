@@ -21,6 +21,7 @@ from typing import Any
 
 from openharnx.app import UsageError, _open, verify
 from openharnx.report import NO_REGRESSIONS, PASSING, verdict
+from openharnx.report.brief import compared
 from openharnx.workspace import NotARepository, repo_root
 
 SETTINGS = Path(".claude") / "settings.local.json"
@@ -35,7 +36,6 @@ NAMED_TESTS = 10  # failing agreed tests named per check
 ERROR_LINES = 12  # error lines quoted per check
 LINE_CHARS = 200
 REASON_CHARS = 5500  # the whole reason, so a noisy failure cannot flood the agent's context
-NO_NEW_FAILURES = "no-new-failures-"
 # Lines in a checker's output that say what went wrong (pytest, node --test, Vitest, Go).
 ERROR_LINE = re.compile(
     r"^\s*(E\s|FAILED |ERROR |--- FAIL|not ok |FAIL |✗|×)|AssertionError|Error:|panic:"
@@ -128,7 +128,7 @@ def _reason(report: dict[str, Any], run_dir: Path) -> str:
         if failed:
             more = f" and {len(failed) - NAMED_TESTS} more" if len(failed) > NAMED_TESTS else ""
             lines.append(f"  Agreed tests that failed: {', '.join(failed[:NAMED_TESTS])}{more}")
-        source = oid.removeprefix(NO_NEW_FAILURES) if oid.startswith(NO_NEW_FAILURES) else oid
+        source = compared(report, oid)
         errors = _errors(output(source))
         if errors and errors == shown:
             lines.append("  Errors: the same as above")
