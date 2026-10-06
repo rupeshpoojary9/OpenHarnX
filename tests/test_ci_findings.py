@@ -17,6 +17,13 @@
    the sandbox on the runner), so nothing could pass. Now `suite_timeout_s` in ohx.toml
    sets the limit for every suite OpenHarnX adds; the project's own obligations keep
    theirs.
+
+3. `ohx approve-tests` stores its signature as a git note, and git refuses to write one
+   without a committer identity. The runner's user has none (an empty full name and no
+   git config), so seven signed-approval tests failed in CI (run 37473579890), and a
+   maintainer on a fresh machine would get git's raw error. The note's author is
+   cosmetic, since the SSH signature is what counts, so without a usable identity the
+   note is written as "OpenHarnX approval"; a configured identity is kept.
 """
 
 from __future__ import annotations
@@ -198,3 +205,53 @@ def test_contract_new_writes_the_limit_too(project: tuple[Path, Path], tmp_path:
     assert main([*args, "--acceptance", "acceptance/test_zero.py", "--sandbox", "none"]) == 0
     written = sorted((repo / "contracts").glob("*.toml"))[-1].read_text()
     assert written.count("timeout_s = 900") >= 2  # the locked copy and the working tree's
+
+
+def _approval_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    repo = tmp_path / "approve"
+    repo.mkdir()
+    for args in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "base"]):
+        subprocess.run(
+            ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *args],
+            check=True,
+            capture_output=True,
+        )
+    key = tmp_path / "key"
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)], check=True)
+    monkeypatch.setenv("OHX_SIGNING_KEY", str(key))
+    monkeypatch.chdir(repo)
+    return repo
+
+
+def _note_author(repo: Path) -> str:
+    out = subprocess.run(
+        ["git", "-C", str(repo), "log", "-1", "--format=%an <%ae>", "refs/notes/ohx-approvals"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return out.stdout.strip()
+
+
+def test_approve_tests_works_without_a_git_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _approval_repo(tmp_path, monkeypatch)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    for var in ("GIT_COMMITTER_NAME", "GIT_AUTHOR_NAME"):
+        monkeypatch.setenv(var, "")  # as on a CI runner: no name to fall back to
+    assert main(["approve-tests"]) == EXIT_OK
+    for var in ("GIT_COMMITTER_NAME", "GIT_AUTHOR_NAME"):
+        monkeypatch.delenv(var)
+    assert _note_author(repo).startswith("OpenHarnX approval")
+
+
+def test_a_configured_identity_is_kept_for_the_note(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _approval_repo(tmp_path, monkeypatch)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Maintainer"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "m@example.com"], check=True)
+    assert main(["approve-tests"]) == EXIT_OK
+    assert _note_author(repo) == "Maintainer <m@example.com>"

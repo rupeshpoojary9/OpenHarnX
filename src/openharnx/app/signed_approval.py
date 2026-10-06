@@ -12,6 +12,7 @@ new approval.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import tomllib
 from pathlib import Path
@@ -28,10 +29,34 @@ def message(commit: str) -> bytes:
     return f"openharnx test changes approved\ncommit {commit}\n".encode()
 
 
-def _git(repo: Path, *args: str, data: str | None = None) -> subprocess.CompletedProcess[str]:
+# Who the approval note is written as when git has no usable identity (a CI runner, a
+# fresh machine): the note's author is cosmetic, the SSH signature is what counts (T100).
+FALLBACK_IDENTITY = {"name": "OpenHarnX approval", "email": "ohx-approval@localhost"}
+
+
+def _git(
+    repo: Path, *args: str, data: str | None = None, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["git", "-C", str(repo), *args], input=data, capture_output=True, text=True
+        ["git", "-C", str(repo), *args],
+        input=data,
+        capture_output=True,
+        text=True,
+        env={**os.environ, **env} if env else None,
     )
+
+
+def _identity(repo: Path) -> dict[str, str] | None:
+    """The environment that names who writes the note: None when git has an identity."""
+    if _git(repo, "var", "GIT_COMMITTER_IDENT").returncode == 0:
+        return None
+    name, email = FALLBACK_IDENTITY["name"], FALLBACK_IDENTITY["email"]
+    return {
+        "GIT_COMMITTER_NAME": name,
+        "GIT_COMMITTER_EMAIL": email,
+        "GIT_AUTHOR_NAME": name,
+        "GIT_AUTHOR_EMAIL": email,
+    }
 
 
 def approve(repo: Path, rev: str = "HEAD", out: Path | None = None) -> tuple[str, str]:
@@ -48,7 +73,16 @@ def approve(repo: Path, rev: str = "HEAD", out: Path | None = None) -> tuple[str
         out.write_text(signature, encoding="utf-8")
         return commit, str(out)
     added = _git(
-        repo, "notes", f"--ref={NOTES_REF}", "add", "-f", "-F", "-", commit, data=signature
+        repo,
+        "notes",
+        f"--ref={NOTES_REF}",
+        "add",
+        "-f",
+        "-F",
+        "-",
+        commit,
+        data=signature,
+        env=_identity(repo),
     )
     if added.returncode != 0:
         raise SigningError(f"cannot store the approval as a git note: {added.stderr.strip()}")
