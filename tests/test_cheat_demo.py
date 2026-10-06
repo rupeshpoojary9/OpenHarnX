@@ -67,8 +67,17 @@ def test_the_demo_fails_when_a_verdict_is_not_what_it_shows(tmp_path: Path) -> N
     assert "expected BLOCKED" in r.stdout + r.stderr
 
 
+# Caches the operating system's own tools write into TMPDIR, not the demo's: on macOS,
+# /usr/bin/git is an xcrun shim that caches its lookups in `xcrun_db` on first use. Found
+# by an external review (2026-10-06), where this test failed on a machine whose cache was
+# cold and passed where it was warm.
+OS_CACHES = frozenset({"xcrun_db"})
+
+
 def test_the_demo_leaves_nothing_behind_without_keep(tmp_path: Path) -> None:
     before = set(tmp_path.iterdir())
     r = _run(tmp_path)
     assert r.returncode == 0, r.stdout + r.stderr
-    assert set(tmp_path.iterdir()) == before
+    left = {p.name for p in set(tmp_path.iterdir()) - before}
+    assert not {n for n in left if n.startswith("ohx-cheat-demo-")}  # nothing of the demo's
+    assert left <= OS_CACHES, left  # and nothing else unexplained

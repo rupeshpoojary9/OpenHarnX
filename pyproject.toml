@@ -1,6 +1,6 @@
 [project]
 name = "openharnx"
-version = "0.0.1"
+version = "0.1.0"
 description = "Local-first verifier for work done by coding agents: locked tests, sandboxed checks, verdicts and signed evidence"
 readme = "README.md"
 license = "Apache-2.0"

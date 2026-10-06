@@ -1,0 +1,5 @@
+# Changes to the gate workflow, the reusable action and their tests need the owner's review (RC-17).
+/.github/ @rupeshpoojary9
+/action.yml @rupeshpoojary9
+/tests/test_workflow_guard.py @rupeshpoojary9
+/tests/test_ci_boundary.py @rupeshpoojary9
