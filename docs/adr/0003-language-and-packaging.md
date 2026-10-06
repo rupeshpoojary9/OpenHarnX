@@ -3,7 +3,7 @@
 - Date: 2026-09-27
 - Owner: Rupesh Poojary
 - Status: accepted
-- References: vault ADR-03; [Stack research](/Users/Shared/SecondBrain/02%20Projects/OpenHarnX%20Research/10%20Stack%20Research.md); task T02
+- References: vault ADR-03; vault note "10 Stack Research" (private); task T02
 
 ## Context
 

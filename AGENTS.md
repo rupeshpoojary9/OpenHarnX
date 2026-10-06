@@ -1,6 +1,6 @@
 # Instructions for engineering agents
 
-Practical rules for working in this repository. The product specifications live in the notes vault at `/Users/Shared/SecondBrain/02 Projects/OpenHarnX Research/`; start with its `AGENTS.md` and `PRD/README.md` before substantive work.
+Practical rules for working in this repository. The product specifications are kept in the owner's private notes ([ADR-0001](docs/adr/0001-source-location-and-spec-home.md)); on the owner's machine they are at `/Users/Shared/SecondBrain/02 Projects/OpenHarnX Research/`, so start there with its `AGENTS.md` and `PRD/README.md` before substantive work. Without them, the code, tests, `docs/adr/` and `docs/tasks/` carry the design.
 
 ## Commands
 

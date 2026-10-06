@@ -11,7 +11,7 @@ OpenHarnX is a local-first verifier for work done by coding agents such as Claud
 
 ## Status
 
-**Early, private, not yet released.** What works today, on macOS with Python projects tested with pytest and TypeScript or JavaScript projects tested with Vitest, Jest or `node --test` (in CI too, with `environment = "npm"` protecting `node_modules`), and Go projects tested with `go test` (validated on Linux):
+**Early, not yet released.** What works today, on macOS with Python projects tested with pytest and TypeScript or JavaScript projects tested with Vitest, Jest or `node --test` (in CI too, with `environment = "npm"` protecting `node_modules`), and Go projects tested with `go test` (validated on Linux):
 
 - **Zero setup.** `ohx init --lock-tests` makes the existing test suite the contract; `ohx verify` then blocks a change that breaks, skips or edits its way past it. `ohx hook install` makes Claude Code verify when the agent says it is done and sends BLOCKED back to the agent, with the agreed tests that failed, the error lines and where the full output is (at most three times in a row, then the agent stops and you are told). Every verdict also reaches you as a one-line message with the report's path: in the interactive session, and with `claude -p` only in `--output-format stream-json` (as `"Stop says: OpenHarnX: ..."`; plain `--output-format json` carries no hook output), or afterwards with `ohx report`. A slow suite runs in parallel with `pytest_args = ["-n", "auto"]` in `ohx.toml`. Checks run with the project's own interpreter: `python = ".venv/bin/python"` in `ohx.toml` if you set it, else the project's `.venv` or `venv`, else the active virtual environment; if the suite cannot run when it is locked, `ohx init --lock-tests` says why. That interpreter's environment is fingerprinted when the contract is accepted; if anything in it changes afterwards (a new `.pth` file, an edited package), no check runs and the report names the files, so install what you need before accepting, or accept again after. `environment = "uv"` locks it outright. Commit `ohx.toml` and `contracts/`; keep `.claude/settings.local.json` (written by `ohx hook install`, with paths on your machine) out of git.
 - **The gate.** `ohx contract new --accept` locks a contract and protected copies of its acceptance tests; `ohx verify --sandbox srt` runs every check in the `srt` sandbox and gives READY (every check passed, agreed acceptance tests included), NO REGRESSIONS (every check passed, but no acceptance tests were agreed, so nothing shows the task is done), BLOCKED, UNKNOWN or INVALID. It blocks weakened checks, broken tests that passed before, and checkers supplied by the candidate. No model calls. With acceptance tests, an advisory mutation check also changes the changed lines that the acceptance tests import and reports any change they did not notice; it never changes the verdict and stops at a time budget, 120 seconds unless `mutation_budget_s` in `ohx.toml` says otherwise.
@@ -24,14 +24,7 @@ The public gate has its own release boundary: [docs/gate-release-criteria.md](do
 
 ## Specifications
 
-The research, product requirements, architecture and roadmap live outside this repository, in the project owner's notes vault:
-
-- Research index: `02 Projects/OpenHarnX Research/00 Read This First.md`
-- Product requirements: `02 Projects/OpenHarnX Research/PRD/`
-- Architecture: `02 Projects/OpenHarnX Research/Design/Architecture.md`
-- Roadmap and task checklist: `02 Projects/OpenHarnX Research/PRD/ROADMAP.md` and `CHECKLIST.md`
-
-Implementation decisions for this code base are recorded in [`docs/adr/`](docs/adr/). See [ADR-0001](docs/adr/0001-source-location-and-spec-home.md) for why the specifications and code live apart.
+The research, product requirements and roadmap are kept in the owner's private notes and are not published. What matters for the code is here: implementation decisions in [`docs/adr/`](docs/adr/), and for each task the commands, results and limitations in [`docs/tasks/`](docs/tasks/). [ADR-0001](docs/adr/0001-source-location-and-spec-home.md) explains the split.
 
 ## Development setup
 
