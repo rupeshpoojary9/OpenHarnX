@@ -97,3 +97,21 @@ def test_readme_states_what_works_and_what_is_not_supported() -> None:
     assert "Nothing product-facing works yet" not in text
     assert "docs/gate-release-criteria.md" in text
     assert "Not supported" in text
+
+
+def test_the_workflow_and_the_action_have_a_code_owner() -> None:
+    """RC-17 (T100): with branch protection requiring code-owner review, a pull request
+    that changes the gate's workflow, the action or their guard tests needs the owner."""
+    owners = (ROOT / ".github" / "CODEOWNERS").read_text(encoding="utf-8").splitlines()
+    rules = {line.split()[0] for line in owners if line.strip() and not line.startswith("#")}
+    assert {"/.github/", "/action.yml"} <= rules
+    assert {"/tests/test_workflow_guard.py", "/tests/test_ci_boundary.py"} <= rules
+
+
+def test_a_security_contact_and_the_threat_model_are_published() -> None:
+    """RC-25 (T100): reports go through GitHub's private vulnerability reporting, and the
+    threat model says what is prevented, detected and open."""
+    security = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
+    assert "private vulnerability reporting" in security.lower()
+    threats = (ROOT / "docs" / "threat-model.md").read_text(encoding="utf-8")
+    assert "| G17 |" in threats and "**Open**" in threats
