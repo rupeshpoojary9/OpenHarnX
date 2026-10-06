@@ -6,8 +6,8 @@ Out of scope for this release: `ohx bug` (agent-driven fixes), `ohx trace` (requ
 
 ## Release decision
 
-**Releasable now: no**
-Blocking: RC-17, RC-24, RC-25.
+**Releasable now: yes**
+Released as `v0.1.0` on 2026-10-06: commit `01626665a341812ded02c0559f5428c2e71d5ef1`, signed tag, gate passed in GitHub Actions under srt (run 37478954436).
 
 ## Supported environment
 
@@ -77,10 +77,10 @@ The gate in CI runs code from pull requests by strangers. No model calls and no 
 
 | ID | Criterion | Release | Status | Evidence | Owner |
 |---|---|---|---|---|---|
-| RC-17 | The contract, protected tests and verifier come from the protected base branch, never from the pull request | required | not met | | T79 |
+| RC-17 | The contract, protected tests and verifier come from the protected base branch, never from the pull request | required | met | `tests/test_gate_ci.py::test_policy_and_contract_changes_in_the_pull_request_have_no_effect`, `tests/test_workflow_guard.py::test_the_gate_is_installed_from_the_base_and_runs_sandboxed`, `tests/test_release_criteria.py::test_the_workflow_and_the_action_have_a_code_owner` (since 2026-10-06 `main` is protected: the `gate` check is required, pull requests need code-owner review for `.github/`, `action.yml` and the guard tests, force pushes and deletion are refused; admins can still push, which the owner alone is) | |
 | RC-18 | Untrusted runs use ephemeral, unprivileged runners: no privileged checkout of pull request code, no persistent self-hosted runner for forks, controlled caches, network and resource limits | required | met | `tests/test_ci_boundary.py::test_only_the_unprivileged_pull_request_trigger_is_used`, `tests/test_ci_boundary.py::test_every_job_runs_on_a_github_hosted_runner_with_a_time_limit`, `tests/test_ci_boundary.py::test_no_shared_caches`, `tests/test_workflow_guard.py::test_the_job_that_runs_pull_request_code_has_no_write_permission`, `tests/test_sandbox_env.py::test_child_gets_proxy_and_allowlist_but_not_caller_secrets` (owner decision 2026-10-03: when the repository goes public, workflows from all outside collaborators need approval, a repository setting outside these tests) | T79 |
 | RC-19 | The verdict is published without exposing write permissions to the candidate process: job outputs or artifacts first; any privileged publisher treats result data as untrusted and never executes it | required | met | `tests/test_ci_boundary.py::test_no_job_can_post_comments_statuses_or_push`, `tests/test_ci_boundary.py::test_the_code_under_review_sees_none_of_the_runner_variables`, `tests/test_ci_boundary.py::test_the_code_under_review_cannot_write_the_runner_files_under_srt`, `tests/test_ci_boundary.py::test_control_without_the_sandbox_the_runner_files_are_writable`, `tests/test_workflow_guard.py::test_the_signing_job_never_checks_out_or_runs_pull_request_code` (published as exit code, job summary and artifact; owner decision 2026-10-03: no pull request comment for now; the srt test passed on macOS and on Linux in the ohx-linux image) | T79 |
-| RC-24 | Evidence produced in CI is signed as the pipeline (Sigstore keyless), and reports say which kind of signature they carry (built 2026-10-03 as a GitHub artifact attestation in a separate job, guarded by `tests/test_workflow_guard.py`; GitHub signs only in public repositories below Enterprise Cloud, so the first real signature comes when the repository is public) | required | not met | | T81 |
+| RC-24 | Evidence produced in CI is signed as the pipeline (Sigstore keyless), and reports say which kind of signature they carry (built 2026-10-03 as a GitHub artifact attestation in a separate job, guarded by `tests/test_workflow_guard.py`; GitHub signs only in public repositories below Enterprise Cloud, so the first real signature comes when the repository is public) | required | met | `tests/test_workflow_guard.py::test_the_signing_job_never_checks_out_or_runs_pull_request_code`, `tests/test_workflow_guard.py::test_signing_runs_only_for_public_same_repository_pull_requests`, `tests/test_workflow_guard.py::test_the_summary_says_why_a_run_is_unsigned` (first real signature 2026-10-06: run 37478954436 on the release candidate; `gh attestation verify report.json -R rupeshpoojary9/OpenHarnX` verified the report's digest, signed by `.github/workflows/gate.yml` through Sigstore) | |
 
 ## Not supported
 
@@ -88,7 +88,7 @@ Stated in the README and here; a project outside this list gets no claim of prot
 
 | ID | Criterion | Release | Status | Evidence | Owner |
 |---|---|---|---|---|---|
-| RC-25 | A public install with pinned releases, a security contact and a published threat model | required | not met | | T81 |
+| RC-25 | A public install with pinned releases, a security contact and a published threat model | required | met | `tests/test_release_criteria.py::test_a_security_contact_and_the_threat_model_are_published`, `tests/test_cheat_demo.py::test_the_demo_shows_green_tests_blocked_and_the_real_fix_ready` (2026-10-06: `v0.1.0` released with a tag signed by the owner and verified by GitHub; `uv tool install git+https://github.com/rupeshpoojary9/OpenHarnX@v0.1.0` in a fresh environment gave `ohx 0.1.0`, and the cheat demo from a public clone at the tag passed; private vulnerability reporting enabled) | |
 | RC-26 | TypeScript and Go projects (Vitest, Jest, Playwright, go test) and their weakening patterns | later | not met | | T82 |
 | RC-27 | Windows, and Linux outside CI | later | not met | | T79, T82 |
 | RC-28 | Verification fast enough for many agent loops a day | later | not met | | T80 |
