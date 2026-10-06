@@ -637,6 +637,37 @@ def _lock_environment(raw: dict[str, Any], pdir: Path, root: Path) -> dict[str, 
     }
 
 
+_PACKAGE = re.compile(r"(?m)^\[\[package\]\]\s*$")
+_OWN_SOURCE = re.compile(r'(?m)^source = \{ (?:editable|virtual) = "\." \}\s*$')
+_VERSION_LINE = re.compile(r'(?m)^version = "[^"\n]*"\s*$')
+
+
+def _without_own_version(text: str) -> str:
+    """`uv.lock` with the version line of the project's own entry (source editable or
+    virtual ".") blanked. The protected environment is built with --no-install-project,
+    so that line never reaches it; every other line still counts."""
+    parts = _PACKAGE.split(text)
+    for i, block in enumerate(parts[1:], 1):
+        if _OWN_SOURCE.search(block):
+            parts[i] = _VERSION_LINE.sub('version = ""', block, count=1)
+    return "[[package]]".join(parts)
+
+
+def _same_lock(kind: str, candidate: Path, accepted: Path) -> bool:
+    """Whether the candidate's lockfile is the accepted one; for uv, a bump of the
+    project's own version is the same lockfile (T100)."""
+    if tree_digest(candidate) == tree_digest(accepted):
+        return True
+    if kind != "uv":
+        return False
+    try:
+        mine = candidate.read_text(encoding="utf-8")
+        theirs = accepted.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    return _without_own_version(mine) == _without_own_version(theirs)
+
+
 def _checker_environment(environment: dict[str, Any], pdir: Path, root: Path) -> Path:
     """The protected environment: the interpreter built from `uv.lock`, or the node_modules
     built from `package-lock.json`; nothing from the candidate's `.venv` or node_modules."""
@@ -645,7 +676,7 @@ def _checker_environment(environment: dict[str, Any], pdir: Path, root: Path) ->
     if not copy.is_file() or tree_digest(copy) != environment["lock_digest"]:
         raise _EnvironmentChanged(f"the accepted copy of {name} changed in the store")
     lockfile = root / name
-    if not lockfile.is_file() or tree_digest(lockfile) != environment["lock_digest"]:
+    if not lockfile.is_file() or not _same_lock(environment["kind"], lockfile, copy):
         raise _EnvironmentChanged(
             f"{name} changed since contract acceptance; accept a contract revision"
         )
