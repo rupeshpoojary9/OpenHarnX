@@ -83,6 +83,10 @@ uv tool uninstall openharnx
 
 Security reports: see [SECURITY.md](SECURITY.md).
 
+## Contributing and roadmap
+
+Issues and small pull requests are welcome; a wrong verdict is the most useful report. [CONTRIBUTING.md](CONTRIBUTING.md) explains how to report one, set up, and how the gate treats a pull request. [ROADMAP.md](ROADMAP.md) lists what comes next and what is not planned.
+
 ## Exit codes
 
 | Code | Meaning |
