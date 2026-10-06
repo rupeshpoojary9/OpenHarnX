@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import time
 import tomllib
@@ -17,7 +18,14 @@ from pathlib import Path
 from typing import Any
 
 from openharnx.app.approval import describe as describe_approval
-from openharnx.environment import LOCKFILES, EnvironmentUnavailable, ensure, ensure_npm
+from openharnx.environment import (
+    LOCKFILES,
+    EnvironmentUnavailable,
+    ensure,
+    ensure_npm,
+    interpreter_changes,
+    interpreter_fingerprint,
+)
 from openharnx.kernel.canonical import digest
 from openharnx.kernel.contract import validate_contract
 from openharnx.kernel.gate import GateEvaluation, Obligation, Observation, evaluate_gate
@@ -169,6 +177,10 @@ def accept_contract(
             obligations.append(dict(MUTATION_OBLIGATION))
         environment = _lock_environment(raw, pdir, base)
         baselines = _regression_baselines(obligations, raw, environment, pdir, base, sandbox, root)
+        interpreter = None
+        if environment is None:  # a locked environment is checked its own way (T77)
+            python, _, _ = _checker_python(raw.get("python", "unknown"), None, pdir, base, root)
+            interpreter = _fingerprint(store, python)
         accepted_tree = build_manifest(base)
         body = {
             "title": raw["title"],
@@ -180,6 +192,7 @@ def accept_contract(
             "documentation_obligations": ["assurance_report", "changelog_entry"],
             "obligations": obligations,
             **({"environment": environment} if environment else {}),
+            **({"interpreter": interpreter} if interpreter else {}),
             **(
                 {"mutation_budget_s": raw["mutation_budget_s"]}
                 if "mutation_budget_s" in raw
@@ -725,6 +738,10 @@ def verify(
         modules, npm_outcome, npm_note = _protected_modules(environment, pdir, root)
         if npm_note:
             env_outcome, env_note = npm_outcome, npm_note
+        recorded = contract.body.get("interpreter")
+        interpreter_problem = (
+            _interpreter_problem(store, recorded, python) if recorded and not environment else ""
+        )
         baselines: dict[str, Any] = contract.body.get("regression_baseline", {})
         approval: dict[str, str] | None = contract.body.get("approval")
         regression_runs: dict[str, tuple[str, dict[str, str] | None]] = {}
@@ -741,6 +758,23 @@ def verify(
             protected = None
             note = ""
             ob_protection = protection
+            if interpreter_problem:  # nothing runs with an interpreter changed since acceptance
+                raw_obs.append(
+                    {
+                        "obligation_id": ob["id"],
+                        "subject_digest": before["digest"],
+                        "contract_revision": contract.revision_id,
+                        "outcome": "invalid",
+                        "note": interpreter_problem,
+                        "exit_code": None,
+                        "duration_ms": 0,
+                        "argv": ob["command"],
+                        "output_blob": store.put_blob(interpreter_problem.encode()),
+                        "producer": "openharnx.verify",
+                        "protection": ob_protection,
+                    }
+                )
+                continue
             if "protected_store_path" in ob:
                 protected = pdir / ob["protected_store_path"]
                 if tree_digest(protected) != ob["protected_digest"]:
@@ -1003,7 +1037,7 @@ def verify(
                     if before["ignored_present"]
                     else []
                 ),
-                *_interpreter_limitations(environment, python, root),
+                *_interpreter_limitations(environment, python, root, recorded),
                 *_node_modules_limitations(contract.body, root),
                 *_regression_limitations(contract.body),
                 *_unlocked_limitations(contract.body),
@@ -1504,16 +1538,69 @@ def _node_modules_limitations(body: dict[str, Any], root: Path) -> list[str]:
 
 
 def _interpreter_limitations(
-    environment: dict[str, Any] | None, python: str, root: Path
+    environment: dict[str, Any] | None,
+    python: str,
+    root: Path,
+    recorded: dict[str, Any] | None = None,
 ) -> list[str]:
-    """Name the blind spot when checkers ran with an interpreter from the candidate."""
-    if environment or not Path(python).is_relative_to(root):
+    """Name the interpreter the checkers ran with whenever no locked environment holds it,
+    wherever it is, and what its fingerprint covers (T99)."""
+    if environment:
         return []
+    where = (
+        " (inside the candidate, usually a .venv that is git-ignored)"
+        if Path(python).is_relative_to(root)
+        else ""
+    )
+    if recorded:
+        covered = (
+            f"its environment ({recorded['files']} files: site-packages and the standard"
+            " library) was fingerprinted at acceptance and matched before the checks ran, so"
+            " later changes are caught; changes made before acceptance, and compiled"
+            " __pycache__ files, are not"
+        )
+    else:
+        covered = (
+            "this contract holds no fingerprint of its environment (accepted before T99, or"
+            " the interpreter could not be asked), so changes to it are not detected"
+        )
     return [
-        f"Checkers ran with an interpreter inside the candidate ({python}), usually a .venv"
-        " that is git-ignored and outside the candidate identity, so changes to it are not"
-        ' detected; set environment = "uv" in ohx.toml'
+        f"Checkers ran with {python}{where}, outside the candidate identity and in no"
+        f' locked environment: {covered}; environment = "uv" in ohx.toml locks it'
     ]
+
+
+def _fingerprint(store: Store, python: str) -> dict[str, Any] | None:
+    """The checker interpreter's fingerprint for the contract, with its file list kept as a
+    blob so a later change can name removed files; None when it cannot be taken (T99)."""
+    try:
+        taken = interpreter_fingerprint(python, time.time_ns())
+    except (EnvironmentUnavailable, OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+    entries = taken.pop("_entries")
+    assert isinstance(entries, dict)
+    taken["paths_blob"] = store.put_blob(json.dumps(sorted(entries)).encode())
+    return taken
+
+
+def _interpreter_problem(store: Store, recorded: dict[str, Any], python: str) -> str:
+    """Why the checkers must not run with this interpreter; empty when it is as accepted."""
+    if recorded.get("python") != python:
+        return (
+            f"the checker interpreter is {python}, not {recorded.get('python')} as when the"
+            " contract was accepted; accept the contract again (`ohx contract accept <file>`)"
+        )
+    try:
+        now = interpreter_fingerprint(python, time.time_ns())
+    except (EnvironmentUnavailable, OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        return f"the checker interpreter {python} could not be checked: {exc}"
+    try:
+        paths: set[str] | None = set(
+            json.loads(store.blob_path(recorded["paths_blob"]).read_bytes())
+        )
+    except (OSError, ValueError, KeyError):
+        paths = None
+    return interpreter_changes(recorded, paths, now)
 
 
 def current_report(cwd: Path) -> dict[str, Any]:

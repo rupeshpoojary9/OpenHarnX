@@ -1,0 +1,43 @@
+title = "The checker interpreter's environment is fingerprinted and checked"
+mode = "bugfix"
+change_summary = "Without a locked environment, accepting a contract fingerprints the checker interpreter's site-packages and standard library (path, size, change time; no __pycache__), found without running its site setup; verify checks it first and makes every check invalid if it changed, naming the files; reports name the interpreter wherever it is (T99)."
+python = ".venv/bin/python"
+environment = "uv"
+
+[[obligations]]
+id = "acceptance-test_checker_interpreter"
+kind = "acceptance"
+mandatory = true
+protected = "../tests/test_checker_interpreter.py"
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "{protected}"]
+
+[[obligations]]
+id = "format"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "format", "--check", "--no-cache", "."]
+
+[[obligations]]
+id = "lint"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "check", "--no-cache", "."]
+
+[[obligations]]
+id = "types"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "mypy", "--cache-dir", "{tmp}/mypy"]
+
+[[obligations]]
+id = "layers"
+kind = "check"
+mandatory = true
+command = ["{bindir}/lint-imports", "--no-cache"]
+
+[[obligations]]
+id = "tests"
+kind = "regression"
+mandatory = true
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "-n", "auto"]
+timeout_s = 600

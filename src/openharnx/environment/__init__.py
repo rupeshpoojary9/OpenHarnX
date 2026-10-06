@@ -12,6 +12,7 @@ cannot shadow the checker.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -145,3 +146,163 @@ def ensure_npm(envs: Path, lockfile: Path, package: Path) -> Path:
         raise EnvironmentUnavailable(f"npm ci failed ({proc.returncode}): {out}")
     (root / _COMPLETE).write_text("ok\n")
     return modules
+
+
+# Where an interpreter's code comes from, asked without its site setup (-S), so no `.pth`
+# file or sitecustomize in that environment runs while it is being checked (T99).
+_WHERE_PROBE = """\
+import json, site, sys, sysconfig
+paths = sysconfig.get_paths()
+print(json.dumps({
+    "executable": sys.executable,
+    "stdlib": [paths["stdlib"], paths["platstdlib"]],
+    "base_site": [paths["purelib"], paths["platlib"]],
+    "user_site": site.getusersitepackages(),
+    "version": "%d.%d" % sys.version_info[:2],
+}))
+"""
+_VENV_PROBE = """\
+import json, sys, sysconfig
+root = sys.argv[1]
+print(json.dumps([sysconfig.get_path(p, vars={"base": root, "platbase": root})
+                  for p in ("purelib", "platlib")]))
+"""
+LISTED_CHANGES = 8
+
+
+def _probe(python: str, code: str, *args: str) -> object:
+    out = subprocess.run(
+        [python, "-I", "-S", "-c", code, *args], capture_output=True, text=True, timeout=60
+    )
+    if out.returncode != 0:
+        raise EnvironmentUnavailable(f"{python} could not be asked: {out.stderr.strip()[-300:]}")
+    return json.loads(out.stdout)
+
+
+def _venv_config(executable: Path) -> tuple[Path, bool] | None:
+    """The virtual environment the executable belongs to, and whether it sees the base
+    installation's packages; None for a plain installation."""
+    for root in (executable.parent.parent, executable.parent):
+        cfg = root / "pyvenv.cfg"
+        if cfg.is_file():
+            text = cfg.read_text(encoding="utf-8", errors="replace").lower()
+            system = any(
+                line.split("=", 1)[0].strip() == "include-system-site-packages"
+                and line.split("=", 1)[1].strip() == "true"
+                for line in text.splitlines()
+                if "=" in line
+            )
+            return root, system
+    return None
+
+
+def interpreter_dirs(python: str) -> tuple[list[Path], list[Path], list[Path]]:
+    """Folders whose files the interpreter loads code from, folders inside them that it
+    does not, and single files that decide which it is (T99)."""
+    where = _probe(python, _WHERE_PROBE)
+    assert isinstance(where, dict)
+    executable = Path(where["executable"])
+    stdlib = [Path(p) for p in where["stdlib"]]
+    base_site = [Path(p) for p in where["base_site"]]
+    venv = _venv_config(executable)
+    files = [executable]
+    if venv is None:
+        dirs = [*stdlib, *base_site, Path(where["user_site"])]
+        skip: list[Path] = []
+    else:
+        root, system = venv
+        files.append(root / "pyvenv.cfg")
+        own = _probe(python, _VENV_PROBE, str(root))
+        assert isinstance(own, list)
+        dirs = [*stdlib, *(Path(p) for p in own)]
+        skip = [] if system else base_site  # the base packages it cannot import
+        if system:
+            dirs += [*base_site, Path(where["user_site"])]
+    unique = sorted({d for d in dirs if d.is_dir()})
+    return unique, skip, files
+
+
+def _walk(dirs: list[Path], skip: list[Path]) -> dict[str, tuple[int, int]]:
+    """Path to (size, change time) for every file under `dirs`, without `__pycache__`."""
+    found: dict[str, tuple[int, int]] = {}
+    pruned = {str(s) for s in skip}
+    for top in dirs:
+        for folder, subdirs, names in os.walk(top):
+            subdirs[:] = [
+                s for s in subdirs if s != "__pycache__" and os.path.join(folder, s) not in pruned
+            ]
+            for name in names:
+                if name.endswith(".pyc"):
+                    continue
+                full = os.path.join(folder, name)
+                try:
+                    st = os.lstat(full)
+                except OSError:
+                    continue
+                found[full] = (st.st_size, st.st_ctime_ns)
+    return found
+
+
+def interpreter_fingerprint(python: str, now_ns: int) -> dict[str, object]:
+    """Path, size and change time of every file the interpreter can load code from. A
+    file's change time moves on any write and cannot be set back by an ordinary user, so
+    a later fingerprint names exactly the files changed after this one (T99)."""
+    dirs, skip, single = interpreter_dirs(python)
+    files = _walk(dirs, skip)
+    for path in single:
+        try:
+            st = path.stat()  # follows the link: the interpreter actually run
+            files[str(path)] = (st.st_size, st.st_ctime_ns)
+        except OSError:
+            files[str(path)] = (-1, -1)
+    lines = sorted(f"{p}\0{size}\0{ctime}" for p, (size, ctime) in files.items())
+    return {
+        "python": python,
+        "dirs": [str(d) for d in dirs],
+        "files": len(files),
+        "digest": "sha256:" + hashlib.sha256("\n".join(lines).encode()).hexdigest(),
+        "taken_ns": str(now_ns),  # the record's canonical JSON holds no integer this big
+        "_entries": files,
+    }
+
+
+def _listed(paths: list[str]) -> str:
+    more = f" and {len(paths) - LISTED_CHANGES} more" if len(paths) > LISTED_CHANGES else ""
+    return ", ".join(paths[:LISTED_CHANGES]) + more
+
+
+def interpreter_changes(
+    then: dict[str, object], then_paths: set[str] | None, now: dict[str, object]
+) -> str:
+    """Empty when the environment is as accepted; else what changed, for the report, with
+    the files first so a shortened note still names them. `then_paths` is the accepted
+    file list, when it could be read back."""
+    if then["digest"] == now["digest"]:
+        return ""
+    taken = int(str(then["taken_ns"]))
+    entries = now["_entries"]
+    assert isinstance(entries, dict)
+    listed = now["dirs"]
+    assert isinstance(listed, list)
+    dirs = sorted((str(d) for d in listed), key=len, reverse=True)
+
+    def short(path: str) -> str:  # site-packages/x.pth rather than the whole path
+        top = next((d for d in dirs if path.startswith(d + os.sep)), None)
+        return path if top is None else f"{os.path.basename(top)}/{path[len(top) + 1 :]}"
+
+    newer = sorted(short(p) for p, (_, ctime) in entries.items() if ctime > taken)
+    parts = []
+    if newer:
+        parts.append(f"changed or added: {_listed(newer)}")
+    if then_paths is not None:
+        removed = sorted(short(p) for p in then_paths - set(entries))
+        if removed:
+            parts.append(f"removed: {_listed(removed)}")
+    if not parts:
+        parts.append("files were replaced or moved")
+    return (
+        f"the checker interpreter's environment changed since the contract was accepted"
+        f" ({'; '.join(parts)}), so no check ran with it: code there runs before any test."
+        f" Interpreter: {now['python']}. If you changed it on purpose, accept the contract"
+        ' again (`ohx contract accept <file>`), or lock it with environment = "uv"'
+    )
