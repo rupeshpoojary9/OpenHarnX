@@ -35,7 +35,9 @@ jobs:
       ${{ (github.event.action != 'labeled' && github.event.action != 'unlabeled')
       || github.event.label.name == 'ohx-approve-tests' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # The suite runs three times (the locked copy at acceptance and in the run, and the
+    # pull request's own), about 10 minutes each under srt on this runner (T100).
+    timeout-minutes: 60
     steps:
       - name: Check out the base commit (trusted; the gate comes from here)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

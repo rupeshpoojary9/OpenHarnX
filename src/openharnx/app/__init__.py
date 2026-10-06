@@ -1209,6 +1209,7 @@ def _default_suites(root: Path, defaults: dict[str, Any]) -> list[dict[str, Any]
         _js_suite,
         _pytest_args,
         _suite_fields,
+        _suite_timeout,
     )
 
     suites: list[dict[str, Any]] = []
@@ -1235,7 +1236,8 @@ def _default_suites(root: Path, defaults: dict[str, Any]) -> list[dict[str, Any]
             suites.append(
                 {"id": oid, "kind": "regression", "mandatory": False, **_suite_fields(suite)}
             )
-    return suites
+    limit = _suite_timeout(defaults)
+    return [{**s, "timeout_s": s.get("timeout_s", limit)} for s in suites]
 
 
 def _claims(
@@ -1585,10 +1587,11 @@ def _interpreter_limitations(
     )
     if recorded:
         covered = (
-            f"its environment ({recorded['files']} files: site-packages and the standard"
-            " library) was fingerprinted at acceptance and matched before the checks ran, so"
-            " later changes are caught; changes made before acceptance, and compiled"
-            " __pycache__ files, are not"
+            f"its environment ({recorded['files']} files in"
+            f" {', '.join(recorded.get('dirs', [])) or 'unrecorded folders'}) was"
+            " fingerprinted at acceptance and matched before the checks ran, so later"
+            " changes there are caught; changes made before acceptance, compiled"
+            " __pycache__ files, and code loaded from other folders are not"
         )
     else:
         covered = (

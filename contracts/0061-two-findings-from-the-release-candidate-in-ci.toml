@@ -1,15 +1,15 @@
-# OpenHarnX project defaults: added to every contract made with `ohx contract new`.
-# Each check keeps its caches in the run directory ({tmp}) or disables them, so
-# verification never writes into the candidate and can run sandboxed.
-
+title = "Two findings from the release candidate in CI"
+mode = "bugfix"
+change_summary = "On Debian and Ubuntu Python the fingerprint finds a venv's site-packages (venv scheme, layout, site.getsitepackages) and the report names the folders; suite_timeout_s in ohx.toml sets the limit of every suite OpenHarnX adds; OpenHarnX's own suite runs in parallel in CI with room to finish (T100)."
 python = ".venv/bin/python"
-# Checkers run from an environment built from the accepted uv.lock in the OpenHarnX
-# store, not from .venv (T77 item 10). {python} and {bindir} point there.
 environment = "uv"
-# The locked copy of tests/ that `ohx gate` adds in CI runs in parallel too, and every
-# suite may take this long: under srt on a 4-core runner the suite took 566 s (T100).
-pytest_args = ["-n", "auto"]
-suite_timeout_s = 1200
+
+[[obligations]]
+id = "acceptance-test_ci_findings"
+kind = "acceptance"
+mandatory = true
+protected = "../tests/test_ci_findings.py"
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "{protected}"]
 
 [[obligations]]
 id = "format"

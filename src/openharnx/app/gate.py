@@ -143,8 +143,9 @@ def _gate_contract(
                 **_suite_fields(suite),
             }
         )
+    own = [dict(o) for o in defaults.get("obligations", [])]
     if "obligations" in defaults:
-        obligations += [dict(o) for o in defaults["obligations"]]
+        obligations += own
     else:
         if (base / "tests").is_dir():
             obligations.append(
@@ -165,6 +166,10 @@ def _gate_contract(
                     **_suite_fields(suite),
                 }
             )
+    limit = _suite_timeout(defaults)
+    for ob in obligations:
+        if not any(ob is o for o in own):  # the project's own obligations keep theirs
+            ob.setdefault("timeout_s", limit)
     if not obligations:
         where = "this repository has" if working_tree else "the base commit has"
         raise UsageError(
@@ -192,6 +197,18 @@ def _gate_contract(
         raw |= {f"approved_{k}": v for k, v in approvals.as_dict(approved).items()}
     raw["obligations"] = obligations
     return raw
+
+
+SUITE_TIMEOUT_S = 300
+
+
+def _suite_timeout(defaults: dict[str, Any]) -> int | float:
+    """Seconds a whole suite OpenHarnX adds may run (`suite_timeout_s` in ohx.toml): a
+    slow suite under the sandbox on a CI runner outgrew the fixed default (T100)."""
+    value = defaults.get("suite_timeout_s", SUITE_TIMEOUT_S)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        raise UsageError("suite_timeout_s in ohx.toml must be a positive number of seconds")
+    return value
 
 
 def _pytest_args(defaults: dict[str, Any]) -> list[str]:

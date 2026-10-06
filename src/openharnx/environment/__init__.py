@@ -150,13 +150,17 @@ def ensure_npm(envs: Path, lockfile: Path, package: Path) -> Path:
 
 # Where an interpreter's code comes from, asked without its site setup (-S), so no `.pth`
 # file or sitecustomize in that environment runs while it is being checked (T99).
+# Distributions patch sysconfig's default scheme (Debian and Ubuntu: `posix_local`, with
+# `dist-packages`), so the base installation's package folders also come from
+# site.getsitepackages(), which they patch to match, and a venv's from the `venv` scheme
+# (Python 3.11+) and its usual layout. Found in CI on Ubuntu's Python 3.12.3 (T100).
 _WHERE_PROBE = """\
 import json, site, sys, sysconfig
 paths = sysconfig.get_paths()
 print(json.dumps({
     "executable": sys.executable,
     "stdlib": [paths["stdlib"], paths["platstdlib"]],
-    "base_site": [paths["purelib"], paths["platlib"]],
+    "base_site": [paths["purelib"], paths["platlib"], *site.getsitepackages()],
     "user_site": site.getusersitepackages(),
     "version": "%d.%d" % sys.version_info[:2],
 }))
@@ -164,7 +168,9 @@ print(json.dumps({
 _VENV_PROBE = """\
 import json, sys, sysconfig
 root = sys.argv[1]
-print(json.dumps([sysconfig.get_path(p, vars={"base": root, "platbase": root})
+scheme = "venv" if "venv" in sysconfig.get_scheme_names() else None
+kw = {"scheme": scheme} if scheme else {}
+print(json.dumps([sysconfig.get_path(p, vars={"base": root, "platbase": root}, **kw)
                   for p in ("purelib", "platlib")]))
 """
 LISTED_CHANGES = 8
@@ -214,11 +220,13 @@ def interpreter_dirs(python: str) -> tuple[list[Path], list[Path], list[Path]]:
         files.append(root / "pyvenv.cfg")
         own = _probe(python, _VENV_PROBE, str(root))
         assert isinstance(own, list)
-        dirs = [*stdlib, *(Path(p) for p in own)]
+        layout = [*root.glob("lib*/python*/site-packages"), root / "Lib" / "site-packages"]
+        dirs = [*stdlib, *(Path(p) for p in own), *layout]
         skip = [] if system else base_site  # the base packages it cannot import
         if system:
             dirs += [*base_site, Path(where["user_site"])]
-    unique = sorted({d for d in dirs if d.is_dir()})
+    # One folder reached through two names (a venv's lib64 -> lib) is walked once.
+    unique = sorted({d.resolve(): d for d in dirs if d.is_dir()}.values())
     return unique, skip, files
 
 
