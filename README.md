@@ -253,6 +253,7 @@ A maintainer approves it: the `ohx-approve-tests` label on GitHub, or a signed `
 |---|---|
 | Website | [openharnx.dev](https://openharnx.dev) |
 | The cheat demo | [examples/cheat-demo](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/examples/cheat-demo/README.md) |
+| Troubleshooting: what you see, why, and the fix | [docs/troubleshooting.md](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/troubleshooting.md) |
 | CI on GitHub Actions, GitLab and Jenkins | [docs/ci](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/ci/README.md) |
 | Release boundary and the tests behind it | [docs/gate-release-criteria.md](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/gate-release-criteria.md) |
 | Threat model | [docs/threat-model.md](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/threat-model.md) |
