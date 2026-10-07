@@ -1,9 +1,0 @@
-project urn:ohx:project:9f55b90d-fa70-4c96-b6c7-2353fe015325
-store   <tmp>/home1/projects/4bdab0b3d1e8ea36
-locked  the existing tests as urn:ohx:rev:4c9a1cd3-990b-4919-bdec-92ac11d7f1ae:
-  locked-tests                 advisory
-  tests                        advisory
-  weakening                    mandatory
-  no-new-failures-locked-tests mandatory
-  no-new-failures-tests        mandatory
-run `ohx verify` after any change; lock again to accept a deliberate test change
