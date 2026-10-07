@@ -1,0 +1,44 @@
+---
+title: Read reports and verify again
+description: Every report opens with a review brief built from recorded facts. Here is what each section means and what to do with it.
+---
+
+```bash
+ohx report            # the latest report, as Markdown
+ohx report --json     # the same, as JSON
+```
+
+`ohx verify` prints the same report and the folder it was saved to. Each run folder holds `report.md` and an `evidence/` folder with a copy of every check's output.
+
+## The five sections of the brief
+
+The brief is built from records by fixed rules. No model writes it.
+
+1. **Requested outcome.** The contract's title, mode and summary, who accepted it and the revision. It says the outcome is checked only through the acceptance tests, or that none were agreed.
+2. **What changed.** Files that differ, by content digest, from the files accepted with the contract: added, modified or deleted, their kind (code, test, configuration, dependencies, docs, other) and, for Python code, whether any test run imported them. Why each file changed is not recorded; an agent's own account is not evidence.
+3. **What was verified.** Only checks that passed, mandatory first, each linked to its output. Acceptance checks list the agreed tests that passed.
+4. **What remains unverified.** Every check that did not pass, agreed tests that failed, missing acceptance tests, tests failing both before and after, changed code no acceptance test imported, unsandboxed checks and other limitations.
+5. **Decisions for you.** Numbered questions from rules over the records: send it back, verify again, is the outcome done, do these lines need a test, review this file by hand, are the changed tests right, did the dependencies change.
+
+After the brief, a **Details** section has the candidate digest, the gate result, the verifier's protection, the obligations table, cost (OpenHarnX makes 0 model calls), the changelog entry and the limitations.
+
+## Facts, limits and decisions
+
+Read sections 2 and 3 as recorded facts, section 4 as the limits of what was checked, and section 5 as questions only you can answer. When the brief finds no decisions it says "None found in the records. This brief does not replace reading the diff."
+
+<Callout type="limit">
+"Imported by a test run" means a pytest run loaded the module, not that the changed lines ran. A passing check does not show that every changed line ran, and a requirement with a passing test is not thereby fully tested.
+</Callout>
+
+## Verify again after any change
+
+The report is bound to the exact files it judged and the contract revision. Any edit to the files or the contract afterwards makes it <Verdict v="STALE" />, and `ohx report` says which files changed since. Run `ohx verify` again.
+
+## Check the store
+
+```bash
+ohx store check
+ohx store check --signer ~/.ssh/id_ed25519.pub
+```
+
+Verifies the hash chain, every record's digest and the signatures. If a saved verdict, a check's output or a locked copy was edited or removed, the report shows as <Verdict v="INVALID" />. See [evidence and stale reports](/docs/concepts/evidence-and-stale-reports).

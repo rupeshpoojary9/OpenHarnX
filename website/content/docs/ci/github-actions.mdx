@@ -1,0 +1,75 @@
+---
+title: GitHub Actions
+description: Judge every pull request against its base branch with the OpenHarnX action. No model calls and no secrets.
+---
+
+`ohx gate` judges a pull request against its base commit: the base's tests run as locked copies against the change, the base's `ohx.toml` is the policy, and nothing the pull request adds to them is used.
+
+## Add the workflow
+
+Save as `.github/workflows/ohx-gate.yml`:
+
+```yaml
+name: OpenHarnX gate
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+permissions:
+  contents: read
+  actions: read        # to tell which commit an approval label was given for
+  pull-requests: read  # to read who added the label
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: ohx
+        uses: rupeshpoojary9/OpenHarnX@01626665a341812ded02c0559f5428c2e71d5ef1 # v0.1.0
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ohx-gate-report
+          path: ${{ steps.ohx.outputs.report }}
+```
+
+Pin the action to a commit. Pinning the action pins the gate: it installs itself from its own source, never from your code.
+
+## What the action does
+
+1. Prepares the sandbox: bubblewrap, socat, ripgrep, `srt` 0.0.77, and Ubuntu 24.04's user-namespace setting.
+2. Installs the gate from the action's own source.
+3. Fetches the base commit if needed, and any signed approvals stored as git notes.
+4. Runs `ohx gate --sandbox srt`, writes the report to the job summary and sets two outputs.
+5. Exits `0` for READY or NO REGRESSIONS, non-zero otherwise.
+
+## Inputs and outputs
+
+| Input | Default | Meaning |
+|---|---|---|
+| `base` | the pull request's base commit | The trusted side |
+| `working-directory` | `.` | The checkout to judge |
+| `sandbox` | `srt` | `srt` or `none`. Without the sandbox the report says checkers ran without isolation |
+| `out` | `ohx-gate` in the runner's temp folder | Folder for `report.json`, `report.md` and `evidence/` |
+| `approve-tests-label` | `ohx-approve-tests` | The label a maintainer adds to approve test changes. Empty turns approvals off |
+| `token` | `github.token` | Read-only token for looking up the label. Given to the gate process only |
+
+| Output | Meaning |
+|---|---|
+| `readiness` | `ready`, `no-regressions`, `blocked`, `unknown` or `invalid` |
+| `report` | The folder with `report.json` and `report.md` |
+
+## Make it required
+
+Make the job a required status check in branch protection or a ruleset, so a blocked change cannot be merged. See [trusted base and required checks](/docs/ci/trust-and-required-checks).
+
+## Time
+
+The gate runs the suite up to three times under the sandbox: the locked copy at acceptance, in the run, and the pull request's own. A suite can be several times slower on a CI runner than on your machine. Raise `timeout-minutes` and `suite_timeout_s` in `ohx.toml` (300 seconds unless set) for a slow suite, and run it in parallel with `pytest_args = ["-n", "auto"]`.
+
+## TypeScript, JavaScript and Go
+
+Experimental. Do not run `npm ci` on the change before the gate: it would run the change's install scripts outside the sandbox. Put `environment = "npm"` in the base's `ohx.toml`, add `actions/setup-node` (Node 22 or later for TypeScript with `node --test`) or `actions/setup-go`, pinned to commits, before the gate. Details in the [configuration reference](/docs/reference/configuration).

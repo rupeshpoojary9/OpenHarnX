@@ -1,0 +1,37 @@
+---
+title: GitLab CI
+description: Run the gate on merge requests with the example job from the repository.
+---
+
+`ohx gate` is a plain command, so any CI that runs a shell on Linux can run it: make the base commit available, install a pinned OpenHarnX, run the gate, keep `ohx-gate/`.
+
+<Callout type="limit">
+This example's commands are tested on Linux under `srt` by `ci/linux/examples_probe.sh`: a genuine change passing, and a change that edits a test to match broken code blocked. GitLab itself has not been tested in a pilot yet.
+</Callout>
+
+## The job
+
+Copy this job into your `.gitlab-ci.yml`. It is the repository file, shown as is:
+
+<RepoFile path="docs/ci/gitlab-ci.yml" lang="yaml" />
+
+Set two things:
+
+- **`OHX_IMAGE`**: an image built from the repository's `ci/linux/Dockerfile` (Python 3.12, Node 22, `srt`, bubblewrap), pushed to your registry.
+- **`OHX_VERSION`**: the commit SHA of the OpenHarnX version you trust. For 0.1.0 that is `01626665a341812ded02c0559f5428c2e71d5ef1`.
+
+## Runner requirements
+
+The sandbox creates user namespaces.
+
+- On a virtual machine runner (a shell executor) that works as is, except on Ubuntu 24.04, which needs `sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`.
+- In a container it needs `--security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined`.
+- Shared container runners that do not allow these options cannot run the sandbox. The gate then reports every check unavailable, never READY.
+
+## Approvals
+
+GitLab has no `ohx-approve-tests` label. A maintainer approves intended test changes with a signed `ohx approve-tests`, and the job fetches the notes before the gate. See [approve intentional test changes](/docs/workflows/approve-test-changes).
+
+## Trust
+
+GitLab runs fork pipelines in the fork's project unless a maintainer starts one in the parent. Use throwaway runners for merge requests from outside the team, and make the job required with "Pipelines must succeed". See [trusted base and required checks](/docs/ci/trust-and-required-checks).

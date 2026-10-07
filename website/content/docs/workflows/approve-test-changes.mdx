@@ -1,0 +1,59 @@
+---
+title: Approve intentional test changes
+description: Some changes are supposed to change tests. A person approves them, and the approval is bound to the exact commit and recorded in the report.
+---
+
+The locked tests and the CI gate block any change that edits, skips or removes an existing test. When that is the intent (a feature removed with its tests, a behaviour changed and its tests updated), a person approves it. Replaying the gate over merged agent pull requests in github/spec-kit, 7 of 20 were intended test changes of this kind.
+
+## Locally
+
+Review the test change, then lock again:
+
+```bash
+ohx init --lock-tests
+```
+
+The current tests become the contract, and the lock is recorded with your git user. For a task contract, accept a new revision with `ohx contract new` or `ohx contract accept`.
+
+## On GitHub: the label
+
+A maintainer adds the `ohx-approve-tests` label to the pull request. The approval counts only when:
+
+- whoever added the label last can push to the repository (write or admin), and
+- the label was added after the judged commit was pushed. The gate checks GitHub's record of workflow runs, not commit dates. A push after the label needs the label again: remove it and add it back.
+
+The workflow must trigger on `labeled` and `unlabeled` and have `actions: read` and `pull-requests: read`; see [GitHub Actions](/docs/ci/github-actions). The label name is the action's `approve-tests-label` input; empty turns approvals off.
+
+## On any platform: a signed approval
+
+On GitLab, Jenkins or a plain git server, or instead of the label, a maintainer signs with their SSH key:
+
+```bash
+git fetch origin && git checkout <the change's head commit>
+ohx approve-tests                          # signs "test changes approved for commit X"
+git push origin refs/notes/ohx-approvals   # the signature travels as a git note
+```
+
+The gate accepts it when the signature verifies for exactly the judged commit and the key is listed in the base branch's `ohx.toml`:
+
+```toml
+approvers = [
+  "rupesh ssh-ed25519 AAAAC3Nza...",
+]
+```
+
+Make the CI job fetch the notes before the gate:
+
+```bash
+git fetch origin "+refs/notes/ohx-approvals:refs/notes/ohx-approvals"
+```
+
+The GitHub Action does this itself. Or write the signature to a file with `ohx approve-tests --out approval.sig` and pass it with `ohx gate --approval-file approval.sig`.
+
+## What approval changes
+
+Approved, the base's tests no longer bind. The change's own tests must pass, a test that passed on the base and still exists must still pass, and a new failing test still blocks. Removed tests and weakening findings are listed in the report as approved, with who approved and when. A refused label changes nothing, and the report says why.
+
+<Callout type="warning">
+The list of approvers is read from the base only. A pull request that edits `ohx.toml`, approvers included, is a weakening finding like any change to check configuration. A new push is a new commit and needs a new approval.
+</Callout>

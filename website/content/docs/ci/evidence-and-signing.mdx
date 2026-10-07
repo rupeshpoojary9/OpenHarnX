@@ -1,0 +1,38 @@
+---
+title: Evidence artifacts and signing
+description: What the gate writes, how to keep it, and what its signature does and does not establish.
+---
+
+## What the gate writes
+
+`ohx gate --out ohx-gate` writes:
+
+- `report.json`: the full report, including the readiness, every check and its digest.
+- `report.md`: the review brief and details, the same content as the job summary.
+- `evidence/`: a copy of each check's output, which the brief links to.
+
+Upload the folder as an artifact, or archive it in GitLab and Jenkins. In the GitHub job summary the brief's output links are relative to the artifact, so they open from the downloaded artifact, not from the summary.
+
+## Signing in GitHub Actions
+
+OpenHarnX's own workflow signs the report with a separate job that never checks out or runs pull request code and alone holds the signing permissions. It attests `report.json` and `report.md` as a GitHub artifact attestation (Sigstore). Check a downloaded report with:
+
+```bash
+gh attestation verify report.json -R <owner>/<repo>
+```
+
+To sign in your repository, copy the `sign` job from [OpenHarnX's gate workflow](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/.github/workflows/gate.yml). The action alone does not sign.
+
+<Callout type="limit">
+GitHub signs CI evidence only in public repositories on plans below Enterprise Cloud, and gives pull requests from forks no signing identity. In those cases the report is unsigned and the job summary says why. A signature shows which workflow produced the report. It does not make the verdict more correct.
+</Callout>
+
+## Local evidence
+
+Locally, every command that writes evidence signs the head of the hash chain with your SSH key (`ssh-keygen -Y`, namespace `openharnx`). The key is `OHX_SIGNING_KEY`, else git's SSH signing key, else the first of `~/.ssh/id_ed25519`, `id_ecdsa` and `id_rsa`. Set `OHX_SIGNING_KEY=none` to turn signing off.
+
+```bash
+ohx store check --signer ~/.ssh/id_ed25519.pub
+```
+
+Pins the key that must have signed. A rebuilt chain breaks the signature, and a chain re-signed with another key fails the pinned signer.

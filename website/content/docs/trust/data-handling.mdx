@@ -1,0 +1,34 @@
+---
+title: Data handling
+description: What OpenHarnX reads, what it stores, and where. Nothing leaves your machine or your CI runner.
+---
+
+## No network, no model calls
+
+The gate and the report make no model calls and need no API keys. Checks run in a sandbox without network access, locally or on your own CI runner. OpenHarnX has no hosted service and sends no telemetry.
+
+Network is used only by steps you start: installing OpenHarnX and `srt`, building a protected environment from `uv.lock` or `package-lock.json`, fetching the base commit and approval notes in CI, and, in GitHub Actions with an approval label, reading labels and workflow runs from GitHub's API with the job's read-only token.
+
+## What is stored
+
+Everything is stored in the evidence store, `~/.openharnx` by default (`OHX_HOME`):
+
+- accepted contracts and the locked copies of tests and check configuration;
+- manifests of the files judged (paths and content digests);
+- each check's output, and the reports;
+- who accepted a contract or locked a suite, from your git configuration (name and email);
+- for the Claude Code hook, the session ID.
+
+Check output can contain whatever your tests print. Keep secrets out of test output as you would in any CI log.
+
+## In CI
+
+`ohx gate` uses a throwaway store unless `--home` says otherwise, and writes `report.json`, `report.md` and `evidence/` to `--out`. Uploaded artifacts follow your CI system's retention. In GitHub Actions the report is written to the job summary.
+
+## Experimental: `ohx bug`
+
+`ohx bug` drives a coding agent, which sends your code and prompts to that agent's model provider under that provider's terms. Its network allowlist permits the provider's domains, which an agent could also use to send data. This is declared, not prevented. The gate never does this.
+
+## Removing data
+
+Delete the project's folder under `~/.openharnx/projects/`, or the whole store. Deleting it removes the evidence for past verifications.

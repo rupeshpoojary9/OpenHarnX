@@ -1,0 +1,40 @@
+---
+title: Verdicts
+description: Six verdicts, each saying exactly what the evidence supports. Two exit 0; everything else exits 10.
+---
+
+| Verdict | Meaning | Exit code |
+|---|---|---|
+| <Verdict v="READY" /> | Every mandatory check passed, including agreed acceptance tests for the task | `0` |
+| <Verdict v="NO REGRESSIONS" /> | Every mandatory check passed and nothing that passed before broke, but no acceptance tests were agreed, so nothing shows the task is done | `0` |
+| <Verdict v="BLOCKED" /> | A mandatory check failed: a broken test, a weakened test, changed check configuration | `10` |
+| <Verdict v="UNKNOWN" /> | A mandatory check could not give a result: missing, crashed, timed out, or its environment changed. Never counted as a pass | `10` |
+| <Verdict v="INVALID" /> | The evidence cannot be trusted: the candidate changed while it was checked, or the store fails its integrity check | `10` |
+| <Verdict v="STALE" /> | The files or the contract changed after this report was made. Verify again | `10` |
+
+In GitHub Actions the action's `readiness` output uses lowercase names: `ready`, `no-regressions`, `blocked`, `unknown`, `invalid`.
+
+## What READY means exactly
+
+For this exact candidate (a digest over every tracked and untracked, non-ignored file, including what symlinks resolve to), under this exact contract revision:
+
+- every mandatory check ran under the stated protection and passed;
+- no protected material or check configuration was weakened since acceptance;
+- no test that passed at acceptance fails now;
+- the contract has at least one mandatory acceptance check, and it passed.
+
+## What READY does not mean
+
+It does not mean that the change is correct beyond what the tests check, that it is safe to merge or deploy, or that anyone approved it. A report authorizes nothing.
+
+## Rules that never bend
+
+- A mandatory check that failed or could not run blocks. No score, waiver or model output turns it into a pass.
+- A check that is missing, crashed or timed out is UNKNOWN, never a pass.
+- Missing evidence or cost is shown as unknown, never as zero or success.
+- A run that collected no tests is not READY.
+- If the sandbox did not start, the check is unavailable, and the verdict is never READY.
+
+## Mandatory and advisory checks
+
+Each check in a contract is mandatory or advisory. Only mandatory checks decide the verdict. Advisory checks, such as the mutation check and the plain run of the working tree's tests, are recorded and appear in the brief. A failed advisory check can raise a decision for you, but it never changes the verdict.

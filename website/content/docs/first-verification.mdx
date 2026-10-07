@@ -1,0 +1,91 @@
+---
+title: Verify your first change
+description: Lock your existing pytest suite, let your agent make one change, and read what OpenHarnX found. About ten minutes, most of it your test suite running.
+---
+
+This guide gives you one meaningful result on your own repository: a verdict on a real change, with the evidence behind it. You do not need to read anything about the architecture first.
+
+## Before you start
+
+- OpenHarnX and `srt` are installed and `ohx doctor` passes ([installation](/docs/installation)).
+- Your project is a git repository with at least one commit, and its pytest suite lives in `tests/`.
+- The suite passes, or you know which tests already fail. Tests that fail before the change are reported, not blamed on it.
+- Checks run with `python` from `ohx.toml`, else `.venv` or `venv` in the project, else the active virtual environment. That interpreter needs pytest and your test dependencies.
+
+Commit or stash unrelated work first, so the change table in the report shows only the change you want judged.
+
+## Steps
+
+<ol className="steps-list">
+<li>
+
+**Lock the suite.** From the repository root:
+
+```bash
+ohx init --lock-tests
+```
+
+The tests as they are now become the contract, and their per-test results become the baseline:
+
+```text
+project urn:ohx:project:…
+store   ~/.openharnx/projects/…
+locked  the existing tests as urn:ohx:rev:…:
+  locked-tests                 advisory
+  tests                        advisory
+  weakening                    mandatory
+  no-new-failures-locked-tests mandatory
+  no-new-failures-tests        mandatory
+run `ohx verify` after any change; lock again to accept a deliberate test change
+```
+
+If a suite cannot run, `ohx` says which interpreter it used. Set `python = ".venv/bin/python"` (or your path) in `ohx.toml` and lock again.
+
+</li>
+<li>
+
+**Make one change.** Ask your coding agent for a small task, as you normally would. Any agent works; OpenHarnX reads the files and the test runs, not the agent.
+
+</li>
+<li>
+
+**Verify.**
+
+```bash
+ohx verify --sandbox srt
+```
+
+The locked copies of your tests run inside the sandbox against the changed code. The command prints the report and exits `0` for READY or NO REGRESSIONS and `10` for anything else.
+
+</li>
+<li>
+
+**Read the brief.**
+
+```bash
+ohx report
+```
+
+The report opens with five sections: the requested outcome, what changed, what was verified, what remains unverified and the decisions for you. [Reading reports](/docs/workflows/read-reports) explains each one.
+
+</li>
+</ol>
+
+## What you will see
+
+- <Verdict v="NO REGRESSIONS" /> Nothing that passed before broke and no test or check configuration was weakened. Nothing shows that the task itself is done, because no acceptance tests were agreed. The decisions section asks you to judge that from the diff.
+- <Verdict v="BLOCKED" /> A locked test that passed before fails or is skipped, a test was removed or weakened, or check configuration changed. Send the output back to the agent. If the test change was intended, [approve it](/docs/workflows/approve-test-changes).
+- <Verdict v="UNKNOWN" /> A mandatory check could not give a result, often because the interpreter lacks a dependency. See [troubleshooting](/docs/help/troubleshooting).
+
+Any edit after verifying makes the report <Verdict v="STALE" />. Run `ohx verify` again.
+
+## Commit what defines the contract
+
+Commit `ohx.toml` and `contracts/` if they exist. Keep `.claude/settings.local.json` out of git if you install the Claude Code hook: it holds paths on your machine.
+
+## Next
+
+- To show the task is done, not only that nothing broke, [agree acceptance tests](/docs/workflows/acceptance-criteria) before the agent starts. A passing change is then READY.
+- To verify automatically when Claude Code says it is done, [install the hook](/docs/workflows/claude-code-hook).
+- To judge pull requests, [add the CI gate](/docs/ci/github-actions).
+- Tell us what it caught or where it got in your way: [send a trial report](https://github.com/rupeshpoojary9/OpenHarnX/issues/new?template=trial-report.yml).
