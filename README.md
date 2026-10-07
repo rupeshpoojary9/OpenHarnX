@@ -10,6 +10,8 @@
   <img alt="Python 3.12+" src="https://img.shields.io/badge/python-3.12%2B-blue">
 </p>
 
+<p align="center"><a href="https://openharnx.dev"><b>openharnx.dev</b></a></p>
+
 # OpenHarnX
 
 **Your coding agent says the tests pass. Check what actually passed.**
@@ -249,6 +251,7 @@ A maintainer approves it: the `ohx-approve-tests` label on GitHub, or a signed `
 
 | Topic | Where |
 |---|---|
+| Website | [openharnx.dev](https://openharnx.dev) |
 | The cheat demo | [examples/cheat-demo](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/examples/cheat-demo/README.md) |
 | CI on GitHub Actions, GitLab and Jenkins | [docs/ci](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/ci/README.md) |
 | Release boundary and the tests behind it | [docs/gate-release-criteria.md](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/gate-release-criteria.md) |
