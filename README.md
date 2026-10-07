@@ -1,7 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/openharnx-logo-dark.png">
-    <img src="docs/assets/openharnx-logo-light.png" alt="OpenHarnX: an open-source verifier for code written by AI coding agents" width="600">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/rupeshpoojary9/OpenHarnX/main/docs/assets/openharnx-logo-light.png">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/rupeshpoojary9/OpenHarnX/main/docs/assets/openharnx-logo-dark.png">
+    <img src="https://raw.githubusercontent.com/rupeshpoojary9/OpenHarnX/main/docs/assets/openharnx-logo-light.png" alt="OpenHarnX: an open-source verifier for code written by AI coding agents" width="600">
   </picture>
 </p>
 
@@ -13,7 +14,16 @@
 
 # OpenHarnX
 
-**OpenHarnX is an open-source verifier for changes written by AI coding agents** such as Claude Code, Codex, Cursor and GitHub Copilot. Keep the agent you use. OpenHarnX locks the tests you agreed on, runs every check in a sandbox, and gives a verdict with evidence, opened by a review brief: what was asked, what changed, what passed, what remains unverified and what needs your judgment. The agent never grades its own work, and no model is called: verdicts come from checks that ran.
+**Your coding agent says the tests pass. Check what actually passed.**
+
+OpenHarnX is an open-source verifier for changes written by AI coding agents such as Claude Code, Codex, Cursor and GitHub Copilot. Keep the agent you use. OpenHarnX protects the tests you agreed on, runs every check in a sandbox, and produces a review brief showing what was verified, what remains uncertain and what needs your judgment. The agent never grades its own work, and no model is called: verdicts come from checks that ran.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/rupeshpoojary9/OpenHarnX/main/docs/assets/cheat-demo.gif" alt="Scripted demo: an agent rewrites one test and skips another, plain pytest passes, OpenHarnX says BLOCKED; the genuine fix passes and the review brief shows what is left to decide" width="820">
+  <br><em>The <a href="examples/cheat-demo">cheat demo</a>, scripted: no model ran. 45 seconds.</em>
+</p>
+
+**Try it:** run the demo, then run OpenHarnX on one change to a Python project. [Tell us](https://github.com/rupeshpoojary9/OpenHarnX/issues/new?template=trial-report.yml) whether the report caught something useful or blocked legitimate work.
 
 It works locally, as a Claude Code hook, and as a CI gate for pull requests (a GitHub Action, with GitLab CI and Jenkins examples). It catches the ways an agent can get a green test run without doing the work: editing or deleting a test, adding a skip marker, loosening the test configuration, breaking tests that passed before, or tampering with the environment the tests run in.
 
@@ -60,7 +70,7 @@ flowchart LR
 
 ## Quick start
 
-You need Python 3.12 or newer, [uv](https://docs.astral.sh/uv/), git and, for the sandbox, Node 20 or later.
+0.1.0 supports Python projects tested with pytest, on macOS locally and Linux in CI ([details](#supported-in-010)). You need Python 3.12 or newer, [uv](https://docs.astral.sh/uv/), git and, for the sandbox, Node 20 or later.
 
 ```bash
 # 1. Install OpenHarnX (pinned) and the sandbox it runs checks in
@@ -109,7 +119,11 @@ Every report opens with a review brief built from what was recorded, with no mod
 2. Dependencies changed: requirements.txt (added). Check what was added or upgraded.
 ```
 
-Each verified line links to that check's full output. The full examples, before and after the brief, are in [docs/tasks/T96.md](docs/tasks/T96.md#before-and-after).
+Each verified line links to that check's full output. The brief for the demo's cheating agent, blocked:
+
+<p align="center"><img src="https://raw.githubusercontent.com/rupeshpoojary9/OpenHarnX/main/docs/assets/report-blocked.png" alt="Review brief of a blocked change: two locked tests that passed before now fail or are skipped, a new skip marker, and the decisions left to the reviewer" width="760"></p>
+
+The full examples, before and after the brief, are in [docs/tasks/T96.md](docs/tasks/T96.md#before-and-after).
 
 ## Verdicts
 
@@ -194,10 +208,10 @@ Working and tested, outside the 0.1.0 boundary: TypeScript and JavaScript projec
 
 ## Evidence so far
 
-What has been measured, not projected. Each figure links to its record.
+We replayed public agent work and published the results, including what OpenHarnX missed, legitimate changes it blocked, environment failures and known limitations. Each figure links to its record.
 
-- **Impossible tasks.** 102 public agent runs from five models on 8 impossible and 2 solvable projects ([DimitrovK/impossible-tasks](https://github.com/DimitrovK/impossible-tasks)), replayed with no model calls: 43 of 52 fake fixes caught with zero setup, including all 26 that changed the tests; every genuine fix passed ([docs/tasks/T89.md](docs/tasks/T89.md)).
-- **Real agent pull requests.** 20 merged Copilot pull requests in github/spec-kit and 31 agent commits in anthropics/claude-agent-sdk-python, judged after the fact by the gate: no wrong verdict. The changes it blocked were intended test changes, which the approval label now covers, or failures of the replay's own environment ([docs/tasks/T90.md](docs/tasks/T90.md), [docs/tasks/T92.md](docs/tasks/T92.md)).
+- **Impossible tasks** ([DimitrovK/impossible-tasks](https://github.com/DimitrovK/impossible-tasks), 102 runs of five models on 8 impossible and 2 solvable projects). 80 runs could be replayed; 22 add files the dataset does not record. With zero setup, 43 of 52 fake fixes were caught: all 26 that changed the tests, and 17 of 26 that changed only the code. The checks for code-only tricks were written from half of the runs; on the held-out half they caught 5 of 11. 9 fakes passed: 6 leave a test failing as before, which zero setup judges as nothing regressed, and 3 change behaviour in ways only a specification could tell apart. All 6 genuine fixes passed; 8 legitimate test edits were blocked until a person accepted them ([docs/tasks/T89.md](docs/tasks/T89.md)).
+- **Real agent pull requests.** 20 merged Copilot pull requests in github/spec-kit, judged after the fact by the gate: 9 passed, 7 were blocked as intended test changes and passed once approved, 4 failed because of the replay's own environment. 31 agent commits in anthropics/claude-agent-sdk-python, most of them changelog updates: 28 passed, 3 were blocked as intended test changes. These are replays of changes people had already merged, not a measure of what reviewers would have caught ([docs/tasks/T90.md](docs/tasks/T90.md), [docs/tasks/T92.md](docs/tasks/T92.md)).
 - **Its own development.** Each change to OpenHarnX is verified READY under the sandbox by an earlier installed version of itself before it is committed, and the commit message names the contract and the digest it judged. The 0.1.0 release candidate then passed the gate in CI, after the gate there had found four defects that local runs missed ([docs/tasks/T100.md](docs/tasks/T100.md)).
 
 Not measured yet: whether the review brief saves reviewers time. A study with real reviewers is on the [roadmap](ROADMAP.md).
@@ -264,7 +278,7 @@ uv tool uninstall openharnx
 
 ## Contributing and roadmap
 
-Issues and small pull requests are welcome; a wrong verdict is the most useful report. [CONTRIBUTING.md](CONTRIBUTING.md) explains how to report one, set up, and how the gate treats a pull request. [ROADMAP.md](ROADMAP.md) lists what comes next and what is not planned.
+Trying OpenHarnX on a real change is the most useful thing you can do right now: [report what happened](https://github.com/rupeshpoojary9/OpenHarnX/issues/new?template=trial-report.yml), whether it caught something or blocked legitimate work. Issues and small pull requests are welcome; a wrong verdict is the most useful report. [CONTRIBUTING.md](CONTRIBUTING.md) explains how to report one, set up, and how the gate treats a pull request. [ROADMAP.md](ROADMAP.md) lists what comes next and what is not planned.
 
 ## License
 

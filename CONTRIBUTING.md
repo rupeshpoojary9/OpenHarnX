@@ -4,6 +4,7 @@ Thanks for looking. OpenHarnX is an early project with one maintainer, so issues
 
 ## Reporting problems
 
+- **Tried it on a real change?** Use the [trial report](https://github.com/rupeshpoojary9/OpenHarnX/issues/new?template=trial-report.yml): whether the report caught something useful or blocked legitimate work. Right now that is the most useful thing to hear.
 - **A wrong verdict is the most useful report.** If OpenHarnX said READY or NO REGRESSIONS for a change that was broken, or BLOCKED a change that was fine, open an issue with the report (`ohx report --json`), what the change did and, if you can, a small repository that reproduces it.
 - Bugs, confusing output and documentation gaps are welcome as issues too. Say which version (`ohx --version`), platform and test runner you used.
 - **Security problems go through private vulnerability reporting, not a public issue.** See [SECURITY.md](SECURITY.md).
