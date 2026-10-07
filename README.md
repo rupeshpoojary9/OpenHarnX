@@ -14,7 +14,7 @@
 
 **Your coding agent says the tests pass. Check what actually passed.**
 
-OpenHarnX is an open-source verifier for changes written by AI coding agents such as Claude Code, Codex, Cursor and GitHub Copilot. Keep the agent you use. OpenHarnX protects the tests you agreed on, runs every check in a sandbox, and produces a review brief showing what was verified, what remains uncertain and what needs your judgment. The agent never grades its own work, and no model is called: verdicts come from checks that ran.
+OpenHarnX is an open-source verifier for changes written by AI coding agents. It checks the files and the test runs, not the agent, so it works with any of them; Claude Code has a built-in integration. Keep the agent you use. OpenHarnX protects the tests you agreed on, runs every check in a sandbox, and produces a review brief showing what was verified, what remains uncertain and what needs your judgment. The agent never grades its own work, and no model is called: verdicts come from checks that ran.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/rupeshpoojary9/OpenHarnX/main/docs/assets/cheat-demo.gif" alt="Scripted demo: an agent rewrites one test and skips another, plain pytest passes, OpenHarnX says BLOCKED; the genuine fix passes and the review brief shows what is left to decide" width="820">
@@ -154,7 +154,15 @@ What a passing verdict does not tell you: whether the tests are good enough. An 
 ## Use it with your coding agent
 
 - **Claude Code.** `ohx hook install` adds a Stop hook: when the agent says it is done, OpenHarnX verifies. BLOCKED goes back to the agent with the agreed tests that failed, the error lines and where the full output is, at most three times in a row; every verdict reaches you as a one-line message with the report's path. With `claude -p`, that message appears in `--output-format stream-json` (plain `json` carries no hook output); `ohx report` always has it.
-- **Any other agent** (Codex, Cursor, GitHub Copilot, Aider and others). Run `ohx verify` when the agent finishes, or let the CI gate judge its pull request. OpenHarnX does not depend on which agent wrote the code.
+- **Any other agent.** Run `ohx verify` when the agent finishes, or let the CI gate judge its pull request. OpenHarnX reads files, git and test runs, not the agent, so this works whichever agent wrote the change.
+
+What has been tested, and how:
+
+| Agent | Integration | Tested |
+|---|---|---|
+| Claude Code | Built-in Stop hook (`ohx hook install`) | End to end, including a headless run that a hook verdict reached |
+| GitHub Copilot coding agent | None needed: the CI gate judges its pull requests | Replayed after the fact on 20 merged pull requests in github/spec-kit |
+| Codex, Cursor, OpenCode, Antigravity, Aider and others | `ohx verify` by hand, or the CI gate | Not tested with these agents yet. Built-in integrations are on the [roadmap](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/ROADMAP.md); a [trial report](https://github.com/rupeshpoojary9/OpenHarnX/issues/new?template=trial-report.yml) from one of them helps decide the order |
 - **History.** `ohx history --last 20` shows what the gate would have said about changes already merged, and marks the ones made by coding agents.
 
 ## Use it in CI
@@ -232,7 +240,7 @@ No. It tells you what was verified and what was not, so you can spend review tim
 No. Checks run locally, or on your own CI runner, in a sandbox without network access.
 
 **Which coding agents does it work with?**
-Any. Claude Code gets a built-in Stop hook; with others you run `ohx verify`, or the CI gate judges their pull requests.
+Any agent can be checked, because OpenHarnX reads the change and the test runs, not the agent. Only Claude Code has a built-in integration (a Stop hook) and has been tested end to end; GitHub Copilot's pull requests were checked in replays. With Codex, Cursor, OpenCode, Antigravity and others you run `ohx verify` or use the CI gate; those have not been tested yet, and built-in integrations for them are on the roadmap.
 
 **What if a change is supposed to change a test?**
 A maintainer approves it: the `ohx-approve-tests` label on GitHub, or a signed `ohx approve-tests` anywhere. The approval is bound to the commit and recorded in the report.
