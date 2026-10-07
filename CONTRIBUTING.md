@@ -32,7 +32,7 @@ You do not need to do the locking yourself. Write the tests and the change, run 
 - Changes to `.github/`, `action.yml` and the workflow guard tests need the code owner's review.
 - Workflows from outside contributors start only after a maintainer approves the run.
 
-The gate takes about 10 to 30 minutes, because the suite runs under the sandbox.
+The gate takes about 10 to 30 minutes, because the suite runs under the sandbox. A docs-only pull request (Markdown files and `docs/assets/`, nothing under `tests/`, `src/` or `contracts/`) skips the suite: the check passes in seconds. Some tests read the documentation, so before pushing a docs-only change run them yourself: `uv run pytest tests/test_release_criteria.py tests/test_launch_docs.py tests/test_positioning.py tests/test_publish.py`.
 
 ## Code rules
 
