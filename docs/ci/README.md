@@ -22,6 +22,8 @@ Both examples run the same block of commands, between `# ohx-gate commands` mark
 
 The locked run is `pytest` on the base's `tests/`. `pytest_args` in the base's `ohx.toml` adds the project's own options to it and to the default `tests` run, for example `pytest_args = ["-n", "auto"]` to run on every core with pytest-xdist (which must be in the protected environment). Per-test results still decide. A change to `pytest_args`, like any `ohx.toml` change, is caught by the weakening check (since baseline version 6; before it, the gate ignored the change's `ohx.toml` without flagging it).
 
+When a pull request changes nothing under `tests/`, its tests are the base's byte for byte, so the gate runs them once. With a mandatory pytest suite in the base's `ohx.toml` that runs all of `tests/` (no path, or `tests`), that suite is the check and the locked copy and its baseline are not run; with the default suites, the pull request's own run is not added beside the locked copy. Any change under `tests/`, or a suite that runs only part of it, keeps every run. The report says when a run was saved.
+
 ## TypeScript and JavaScript projects
 
 - **Do not run `npm ci` (or `npm install`) on the change before the gate.** It runs the change's install scripts in the job, outside the sandbox, and leaves a `node_modules` that is not part of what the gate judges. Put `environment = "npm"` in `ohx.toml` on the base branch instead: the gate installs from the base's `package-lock.json` itself, with `--ignore-scripts`, and a change that edits the lockfile gets no verdict until someone accepts a contract revision for it. The runner needs `npm` and network access for that install; the checks themselves run in the sandbox without network.
