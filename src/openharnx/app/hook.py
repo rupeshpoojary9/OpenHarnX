@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -105,6 +106,71 @@ def _errors(path: Path | None) -> list[str]:
     return [line if len(line) <= LINE_CHARS else line[: LINE_CHARS - 3] + "..." for line in found]
 
 
+OPENCODE_PLUGIN = Path(".opencode") / "plugins" / "openharnx.js"
+# Loaded by OpenCode from the project (its plugin docs, 2026-10-07). On `session.idle`
+# it asks `ohx hook opencode-stop` for a verdict, shows it, and sends a blocked agent back.
+OPENCODE_SOURCE = """\
+// OpenHarnX: verify when the OpenCode agent goes idle (written by `ohx hook install
+// --agent opencode`). Shows each verdict; a blocked agent is sent back with what failed,
+// at most three times in a row in one session.
+const OHX = __OHX__
+
+export const OpenHarnX = async ({ client, $, directory }) => {
+  const running = new Set()
+  return {
+    event: async ({ event }) => {
+      if (event.type !== "session.idle") return
+      const sessionID = event.properties.sessionID
+      if (running.has(sessionID)) return
+      running.add(sessionID)
+      try {
+        const out = await $`${OHX} hook opencode-stop --session ${sessionID} --cwd ${directory}`
+          .quiet()
+          .nothrow()
+        const answer = JSON.parse(out.stdout.toString())
+        await client.tui.showToast({
+          body: {
+            title: "OpenHarnX",
+            message: answer.message,
+            variant: answer.send_back ? "warning" : answer.verdict ? "success" : "info",
+          },
+        })
+        if (answer.send_back) {
+          await client.session.prompt({
+            path: { id: sessionID },
+            body: { parts: [{ type: "text", text: answer.send_back }] },
+          })
+        }
+      } catch (error) {
+        await client.app.log({
+          body: {
+            service: "openharnx",
+            level: "error",
+            message: `OpenHarnX could not verify: ${error}`,
+          },
+        })
+      } finally {
+        running.delete(sessionID)
+      }
+    },
+  }
+}
+"""
+
+
+def install_opencode(cwd: Path) -> Path:
+    """Write the project plugin OpenCode loads (T104); writing it again replaces it."""
+    try:
+        root = repo_root(cwd)
+    except NotARepository as exc:
+        raise UsageError(f"not inside a git repository: {cwd}") from exc
+    path = root / OPENCODE_PLUGIN
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ohx = shutil.which("ohx") or "ohx"
+    path.write_text(OPENCODE_SOURCE.replace("__OHX__", json.dumps(ohx)), encoding="utf-8")
+    return path
+
+
 def _reason(report: dict[str, Any], run_dir: Path) -> str:
     """What the agent needs to fix a block (T98): each failing check, the agreed tests that
     failed, the error lines and where the full output is; bounded in length."""
@@ -192,16 +258,21 @@ def _record(pdir: Path, session: str, blocked: int) -> None:
     (pdir / STATE).write_text(json.dumps({"session": session, "blocked": blocked}))
 
 
-def claude_stop(stdin: str, cwd: Path, sandbox: str = "auto") -> dict[str, Any]:
-    """The hook's answer to Claude Code: empty to let the agent stop, or a decision."""
-    try:
-        event = json.loads(stdin) if stdin.strip() else {}
-    except ValueError:
-        event = {}
-    if not isinstance(event, dict):
-        event = {}
-    where = Path(event.get("cwd") or cwd)
-    session = str(event.get("session_id", ""))
+@dataclass(frozen=True)
+class Answer:
+    """What an agent integration does after a verification: tell the person `message`;
+    when `send_back` is set, return it to the agent so it keeps working."""
+
+    verdict: str | None
+    message: str
+    send_back: str | None = None
+
+
+def agent_stop(
+    where: Path, session: str, consecutive: bool, tool: str, sandbox: str = "auto"
+) -> Answer:
+    """Verify the change an agent session says is done (T80, T98; any agent since T104).
+    `consecutive` says whether this stop follows one this hook sent back."""
     pdir = where
     try:
         _, pdir, store = _open(where)
@@ -210,41 +281,75 @@ def claude_stop(stdin: str, cwd: Path, sandbox: str = "auto") -> dict[str, Any]:
     except UsageError:
         contract = None
     if contract is None:
-        return {
-            "systemMessage": "OpenHarnX: nothing verified, this repository has no contract yet;"
-            " run `ohx init --lock-tests` to lock its tests."
-        }
-    blocked = _attempts(pdir, session, bool(event.get("stop_hook_active")))
-    agent = {"tool": "claude-code", "session": session} if session else None
+        return Answer(
+            None,
+            "OpenHarnX: nothing verified, this repository has no contract yet;"
+            " run `ohx init --lock-tests` to lock its tests.",
+        )
+    blocked = _attempts(pdir, session, consecutive)
+    agent = {"tool": tool, "session": session} if session else None
     record, run_dir = verify(where, sandbox=sandbox, agent=agent)
     report = record.body
+    readiness = str(report["readiness"])
     where_report = f"Report: {run_dir / 'report.md'}"
-    if report["readiness"] in PASSING:
+    if readiness in PASSING:
         _record(pdir, session, 0)
-        if report["readiness"] != NO_REGRESSIONS:
-            return {
-                "systemMessage": "OpenHarnX: READY. Every check passed, the agreed acceptance"
-                f" tests included. {where_report}"
-            }
+        if readiness != NO_REGRESSIONS:
+            return Answer(
+                readiness,
+                "OpenHarnX: READY. Every check passed, the agreed acceptance tests included."
+                f" {where_report}",
+            )
         still = len(report["claims"]["still_failing"])
-        return {
-            "systemMessage": "OpenHarnX: NO REGRESSIONS. Nothing that passed before broke,"
-            " but no acceptance tests define the task, so it is not shown to be done"
+        return Answer(
+            readiness,
+            "OpenHarnX: NO REGRESSIONS. Nothing that passed before broke, but no acceptance"
+            " tests define the task, so it is not shown to be done"
             + (f"; {still} locked test(s) still fail as before." if still else ".")
-            + f" {where_report}"
-        }
+            + f" {where_report}",
+        )
     if blocked >= MAX_BLOCKS:
         _record(pdir, session, 0)
-        return {
-            "systemMessage": f"OpenHarnX: still {verdict(report['readiness'])} after"
-            f" {MAX_BLOCKS} attempts; the agent stopped. {where_report}"
-        }
+        return Answer(
+            readiness,
+            f"OpenHarnX: still {verdict(readiness)} after {MAX_BLOCKS} attempts; the agent"
+            f" stopped. {where_report}",
+        )
     _record(pdir, session, blocked + 1)
-    return {
-        **_send_back(_reason(report, run_dir)),
-        "systemMessage": f"OpenHarnX: {verdict(report['readiness'])} (attempt {blocked + 1}"
-        f" of {MAX_BLOCKS}); sent back to the agent with what failed. {where_report}",
-    }
+    return Answer(
+        readiness,
+        f"OpenHarnX: {verdict(readiness)} (attempt {blocked + 1} of {MAX_BLOCKS}); sent back"
+        f" to the agent with what failed. {where_report}",
+        _reason(report, run_dir),
+    )
+
+
+def claude_stop(stdin: str, cwd: Path, sandbox: str = "auto") -> dict[str, Any]:
+    """The hook's answer to Claude Code: a message for the person, and a decision when
+    the agent should keep working."""
+    try:
+        event = json.loads(stdin) if stdin.strip() else {}
+    except ValueError:
+        event = {}
+    if not isinstance(event, dict):
+        event = {}
+    where = Path(event.get("cwd") or cwd)
+    session = str(event.get("session_id", ""))
+    answer = agent_stop(where, session, bool(event.get("stop_hook_active")), "claude-code", sandbox)
+    if answer.send_back is None:
+        return {"systemMessage": answer.message}
+    return {**_send_back(answer.send_back), "systemMessage": answer.message}
+
+
+def opencode_stop(session: str, cwd: Path, sandbox: str = "auto") -> dict[str, Any]:
+    """The answer the OpenCode plugin acts on (T104). OpenCode says nothing about whether
+    an idle session follows a message this hook sent, so blocked attempts count within
+    the session until a verdict passes."""
+    try:
+        answer = agent_stop(cwd, session, True, "opencode", sandbox)
+    except Exception as exc:  # the owner must hear about it; the agent must not be stuck
+        return {"verdict": None, "message": f"OpenHarnX could not verify: {exc}", "send_back": None}
+    return {"verdict": answer.verdict, "message": answer.message, "send_back": answer.send_back}
 
 
 def main_stop(sandbox: str) -> dict[str, Any]:

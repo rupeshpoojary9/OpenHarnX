@@ -164,7 +164,8 @@ What has been tested, and how:
 |---|---|---|
 | Claude Code | Built-in Stop hook (`ohx hook install`) | End to end, including a headless run that a hook verdict reached |
 | GitHub Copilot coding agent | None needed: the CI gate judges its pull requests | Replayed after the fact on 20 merged pull requests in github/spec-kit |
-| Codex, Cursor, OpenCode, Antigravity, Aider and others | `ohx verify` by hand, or the CI gate | Not tested with these agents yet. Built-in integrations are on the [roadmap](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/ROADMAP.md); a [trial report](https://github.com/rupeshpoojary9/OpenHarnX/issues/new?template=trial-report.yml) from one of them helps decide the order |
+| OpenCode | Built-in plugin (`ohx hook install --agent opencode`): verifies when the agent goes idle, shows the verdict, sends a blocked agent back | Experimental: tested against OpenCode's plugin API, not yet in a live OpenCode session. A [trial report](https://github.com/rupeshpoojary9/OpenHarnX/issues/new?template=trial-report.yml) helps |
+| Codex, Cursor, Antigravity, Aider and others | `ohx verify` by hand, or the CI gate | Not tested with these agents yet. Built-in integrations are on the [roadmap](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/ROADMAP.md); a [trial report](https://github.com/rupeshpoojary9/OpenHarnX/issues/new?template=trial-report.yml) from one of them helps decide the order |
 - **History.** `ohx history --last 20` shows what the gate would have said about changes already merged, and marks the ones made by coding agents.
 
 ## Use it in CI
@@ -242,7 +243,7 @@ No. It tells you what was verified and what was not, so you can spend review tim
 No. Checks run locally, or on your own CI runner, in a sandbox without network access.
 
 **Which coding agents does it work with?**
-Any agent can be checked, because OpenHarnX reads the change and the test runs, not the agent. Only Claude Code has a built-in integration (a Stop hook) and has been tested end to end; GitHub Copilot's pull requests were checked in replays. With Codex, Cursor, OpenCode, Antigravity and others you run `ohx verify` or use the CI gate; those have not been tested yet, and built-in integrations for them are on the roadmap.
+Any agent can be checked, because OpenHarnX reads the change and the test runs, not the agent. Claude Code has a built-in integration (a Stop hook) tested end to end; OpenCode has a built-in plugin that is experimental, not yet run in a live session; GitHub Copilot's pull requests were checked in replays. With Codex, Cursor, Antigravity and others you run `ohx verify` or use the CI gate; those have not been tested yet, and built-in integrations for them are on the roadmap.
 
 **What if a change is supposed to change a test?**
 A maintainer approves it: the `ohx-approve-tests` label on GitHub, or a signed `ohx approve-tests` anywhere. The approval is bound to the commit and recorded in the report.

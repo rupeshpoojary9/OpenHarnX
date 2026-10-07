@@ -32,6 +32,7 @@ from openharnx.app.gate import gate, lock_tests
 from openharnx.app.history import history as history_rows
 from openharnx.app.history import write as write_history
 from openharnx.app.hook import install as hook_install
+from openharnx.app.hook import install_opencode, opencode_stop
 from openharnx.app.hook import main_stop as hook_main_stop
 from openharnx.app.signed_approval import NOTES_REF
 from openharnx.app.signed_approval import approve as approve_tests
@@ -151,7 +152,13 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     return EXIT_OK if report["readiness"] in PASSING else EXIT_BLOCKED
 
 
-def _cmd_hook_install(_: argparse.Namespace) -> int:
+def _cmd_hook_install(args: argparse.Namespace) -> int:
+    if args.agent == "opencode":
+        path = install_opencode(Path.cwd())
+        print(f"installed the OpenCode plugin in {path}")
+        print("when the agent goes idle, OpenHarnX verifies; BLOCKED goes back to the agent")
+        print("experimental: not yet run in a live OpenCode session; please report how it goes")
+        return EXIT_OK
     path = hook_install(Path.cwd())
     print(f"installed the Claude Code Stop hook in {path}")
     print("when the agent says it is done, OpenHarnX verifies; BLOCKED goes back to the agent")
@@ -167,6 +174,12 @@ def _cmd_hook_claude_stop(args: argparse.Namespace) -> int:
         answer = {"systemMessage": f"OpenHarnX could not verify: {exc}"}
     if answer:
         print(json.dumps(answer))
+    return EXIT_OK
+
+
+def _cmd_hook_opencode_stop(args: argparse.Namespace) -> int:
+    # Always exits 0 and answers in JSON, problems included: the plugin decides.
+    print(json.dumps(opencode_stop(args.session, Path(args.cwd), args.sandbox)))
     return EXIT_OK
 
 
@@ -367,8 +380,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     hook = sub.add_parser("hook", help="agent hooks (Claude Code)")
     hsub = hook.add_subparsers(dest="hook_command", metavar="<action>")
-    hinstall = hsub.add_parser("install", help="add the Stop hook to .claude/settings.local.json")
+    hinstall = hsub.add_parser(
+        "install",
+        help="Claude Code: add the Stop hook to .claude/settings.local.json; OpenCode: write"
+        " .opencode/plugins/openharnx.js",
+    )
+    hinstall.add_argument("--agent", choices=["claude", "opencode"], default="claude")
     hinstall.set_defaults(func=_cmd_hook_install)
+    hoc = hsub.add_parser("opencode-stop", help="run by the OpenCode plugin when the agent idles")
+    hoc.add_argument("--session", required=True)
+    hoc.add_argument("--cwd", required=True)
+    hoc.add_argument("--sandbox", choices=["auto", "srt", "none"], default="auto")
+    hoc.set_defaults(func=_cmd_hook_opencode_stop)
     hstop = hsub.add_parser("claude-stop", help="run by Claude Code when the agent stops")
     hstop.add_argument("--sandbox", choices=["auto", "srt", "none"], default="auto")
     hstop.set_defaults(func=_cmd_hook_claude_stop)
