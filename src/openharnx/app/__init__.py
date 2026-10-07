@@ -728,6 +728,11 @@ def _agent_work(store: Store, contract_revision: str, agent: dict[str, str] | No
     work = _agent_cost(store, contract_revision)
     if agent is None or not work.startswith("unknown"):
         return work
+    if agent.get("tool") == "opencode":
+        return (
+            f"unknown: OpenCode session {agent['session']} ran the agent, and OpenCode does"
+            " not give its cost to plugins"
+        )
     return (
         f"unknown: Claude Code session {agent['session']} ran the agent, and Claude Code does"
         " not give its cost to hooks; `claude -p --output-format json` reports it as"

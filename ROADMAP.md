@@ -22,7 +22,7 @@ What is released and supported today is in the [README](https://github.com/rupes
 Every agent can be checked today with `ohx verify` or the CI gate, because OpenHarnX reads the change and the test runs, not the agent. A built-in integration does what the Claude Code Stop hook does: verify when the agent says it is done, send a blocked agent back with what failed, and tell you the verdict. Each depends on the agent offering a way to run a command when it finishes; that is checked per agent before anything is built, and an integration ships only after a live run with that agent is recorded.
 
 - [x] **Claude Code:** Stop hook, tested end to end.
-- [ ] **OpenCode**, including with a model hosted on your own machine or network, where the sandbox can show that nothing leaves it.
+- [ ] **OpenCode**, including with a model hosted on your own machine or network, where the sandbox can show that nothing leaves it. The plugin is built (`ohx hook install --agent opencode`, experimental); it is ticked once a live run is recorded.
 - [ ] **Codex.**
 - [ ] **Cursor.**
 - [ ] **Antigravity** and others, in the order trial reports ask for them.
