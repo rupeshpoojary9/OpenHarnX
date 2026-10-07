@@ -40,7 +40,7 @@ import tomllib
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-BASELINE_VERSION = 6
+BASELINE_VERSION = 7
 
 # Files that configure checkers, wherever they are (ruff and pytest read nested ones).
 CONFIG_NAMES = frozenset(
@@ -299,7 +299,8 @@ def _skips(tree: ast.Module) -> int:
 
 PATCH = "patch of an imported module"
 EQUALITY = "__eq__ that can hide a wrong result"
-SOURCE_CHECKS = (PATCH, EQUALITY)
+RUNNER = "check for a running test runner"
+SOURCE_CHECKS = (PATCH, EQUALITY, RUNNER)
 _BUILTIN_VALUES = frozenset(
     {"str", "bytes", "int", "float", "complex", "bool", "list", "tuple", "dict", "set", "frozenset"}
 )
@@ -404,7 +405,73 @@ def _equalities(tree: ast.Module) -> int:
     )
 
 
-def _python_counts(text: str, test: bool) -> dict[str, int] | None:
+def _mentions_runner(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and ("pytest" in node.value.lower())
+    )
+
+
+def _dotted_name(node: ast.AST) -> str:
+    parts: list[str] = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if isinstance(node, ast.Name):
+        parts.append(node.id)
+    return ".".join(reversed(parts))
+
+
+# Where a running test runner shows (T105): its modules, its environment variables, and
+# the command line it was started with.
+_RUNNER_PLACES = ("sys.modules", "os.environ", "sys.argv", "environ", "modules", "argv")
+_RUNNER_CALLS = ("os.getenv", "getenv", "os.environ.get", "environ.get", "sys.modules.get")
+
+
+def _looks_at_runner_place(node: ast.AST) -> bool:
+    return any(
+        isinstance(n, (ast.Attribute, ast.Name)) and _dotted_name(n).endswith(_RUNNER_PLACES)
+        for n in ast.walk(node)
+    )
+
+
+def _runner_checks(tree: ast.Module) -> int:
+    """Places that look for a running test runner: pytest in `sys.modules`, a `PYTEST_`
+    environment variable, pytest in `sys.argv`."""
+    count = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Compare):
+            operands = [node.left, *node.comparators]
+            if any(_mentions_runner(o) for o in operands) and any(
+                _looks_at_runner_place(o) for o in operands
+            ):
+                count += 1
+        elif isinstance(node, ast.Call):
+            if _dotted_name(node.func).endswith(_RUNNER_CALLS) and any(
+                _mentions_runner(a) for a in node.args[:1]
+            ):
+                count += 1
+        elif isinstance(node, ast.Subscript):
+            if _dotted_name(node.value).endswith(("os.environ", "environ")) and _mentions_runner(
+                node.slice
+            ):
+                count += 1
+    return count
+
+
+def _test_support(path: str) -> bool:
+    """A file tests use, where checking for the test runner is fair: a test file, a
+    `conftest.py`, or anything under a tests folder (T105)."""
+    p = PurePosixPath(path)
+    return (
+        is_test_file(path)
+        or p.name == "conftest.py"
+        or any(part in ("tests", "test", "testing") for part in p.parts[:-1])
+    )
+
+
+def _python_counts(text: str, test: bool, support: bool = False) -> dict[str, int] | None:
     try:
         tree = ast.parse(text)
     except (SyntaxError, ValueError):
@@ -412,6 +479,8 @@ def _python_counts(text: str, test: bool) -> dict[str, int] | None:
     counts = {SKIP: _skips(tree)}
     if not test:
         counts |= {PATCH: _patches(tree), EQUALITY: _equalities(tree)}
+        if not support:
+            counts[RUNNER] = _runner_checks(tree)
     return counts
 
 
@@ -420,7 +489,7 @@ def _source_counts(text: str) -> dict[str, int]:
         tree = ast.parse(text)
     except (SyntaxError, ValueError):
         return {}
-    return {PATCH: _patches(tree), EQUALITY: _equalities(tree)}
+    return {PATCH: _patches(tree), EQUALITY: _equalities(tree), RUNNER: _runner_checks(tree)}
 
 
 def is_test_file(path: str) -> bool:
@@ -503,7 +572,7 @@ def snapshot(root: Path, paths: list[str]) -> dict[str, Any]:
         if rel.endswith(".py"):
             if counts.get(SKIP):
                 any_skips[rel] = counts[SKIP]
-            counts |= _python_counts(text, is_test_file(rel)) or {}
+            counts |= _python_counts(text, is_test_file(rel), _test_support(rel)) or {}
         counts = {k: n for k, n in counts.items() if n}
         if counts:
             suppressions[rel] = counts
@@ -545,6 +614,10 @@ def _as_version(snap: dict[str, Any], version: int) -> dict[str, Any]:
         suppressions = {
             k: {kind: n for kind, n in v.items() if kind not in SOURCE_CHECKS}
             for k, v in suppressions.items()
+        }
+    if version < 7:  # looking for a running test runner did not count yet (T105)
+        suppressions = {
+            k: {kind: n for kind, n in v.items() if kind != RUNNER} for k, v in suppressions.items()
         }
     if version < 5:  # every skip counted, conditional or not
         any_skips = snap.get("any_skips", {})
