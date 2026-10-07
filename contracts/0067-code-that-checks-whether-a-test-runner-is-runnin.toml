@@ -1,0 +1,43 @@
+title = "Code that checks whether a test runner is running is flagged"
+mode = "task"
+change_summary = "The weakening check counts, in Python files that are not tests, places that look for a running test runner (pytest in sys.modules, PYTEST_ environment variables, pytest in sys.argv); more than at acceptance blocks; tests and conftest may check; older baselines are not judged by it (T105)."
+python = ".venv/bin/python"
+environment = "uv"
+
+[[obligations]]
+id = "acceptance-test_runner_detection"
+kind = "acceptance"
+mandatory = true
+protected = "../tests/test_runner_detection.py"
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "{protected}"]
+
+[[obligations]]
+id = "format"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "format", "--check", "--no-cache", "."]
+
+[[obligations]]
+id = "lint"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "check", "--no-cache", "."]
+
+[[obligations]]
+id = "types"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "mypy", "--cache-dir", "{tmp}/mypy"]
+
+[[obligations]]
+id = "layers"
+kind = "check"
+mandatory = true
+command = ["{bindir}/lint-imports", "--no-cache"]
+
+[[obligations]]
+id = "tests"
+kind = "regression"
+mandatory = true
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "-n", "auto"]
+timeout_s = 1200

@@ -145,7 +145,7 @@ Each of these is covered by tests, listed in the [threat model](https://github.c
 - **Edited, deleted or skipped tests.** Locked copies run instead of the agent's versions; removed tests, removed assertions and new skip or xfail markers are flagged.
 - **Loosened configuration.** New lint or type-check suppressions, changed pytest options, a new `conftest.py`, changed `ohx.toml`.
 - **Collateral damage.** A test that passed when the contract was accepted and fails, or no longer runs, after the change.
-- **Gaming the test run.** Tests that pass only because other tests ran first, new patches of imported modules, and `__eq__` overrides that make any comparison succeed.
+- **Gaming the test run.** Tests that pass only because other tests ran first, new patches of imported modules, `__eq__` overrides that make any comparison succeed, and code that behaves differently when it sees a test runner (pytest in `sys.modules`, a `PYTEST_` environment variable, pytest in `sys.argv`).
 - **Replacing the checker.** A file in the candidate named like pytest or a module it imports cannot stand in for the real one.
 - **Tampering with the environment.** A changed lockfile, a protected environment that differs from the accepted one, or a `.pth` file or edited package dropped into the checker's interpreter after acceptance makes every check invalid and names the files.
 - **Tests that run other code.** A test run that imported the project from another checkout, such as a stale editable install, is invalid.

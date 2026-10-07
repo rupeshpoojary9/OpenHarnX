@@ -11,7 +11,7 @@ What is released and supported today is in the [README](https://github.com/rupes
 
 ## Next (0.1.x)
 
-- [ ] **Code that detects the test runner.** Flag changed code that behaves differently when pytest is running (for example by checking `sys.modules` or `PYTEST_CURRENT_TEST`), a way for a change to pass every test and fail in use.
+- [x] **Code that detects the test runner.** Flag changed code that behaves differently when pytest is running (for example by checking `sys.modules` or `PYTEST_CURRENT_TEST`), a way for a change to pass every test and fail in use.
 - [ ] **Approval and CI documentation.** The GitLab example fetching approval notes, which SSH key `ohx approve-tests` signs with, and a BLOCKED report that says how test changes are approved.
 - [ ] **The checker's interpreter.** Also fingerprint folders that a `.pth` file in its environment points to.
 - [ ] **Faster CI.** The gate runs the whole suite up to three times under the sandbox; reuse what can be reused.
