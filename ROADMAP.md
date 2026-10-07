@@ -30,7 +30,7 @@ Every agent can be checked today with `ohx verify` or the CI gate, because OpenH
 ## Being considered (0.2)
 
 - [ ] **TypeScript, JavaScript and Go as supported**, not experimental, including pnpm and Yarn lockfiles.
-- [ ] **Linux outside CI**, so local verification runs where most CI does.
+- [ ] **Linux outside CI**, so local verification runs where most CI does. Tried in a Debian 13 arm64 container (T108, `ci/linux/local_trial.sh`); next a physical machine and x86_64.
 - [ ] **Verification fast enough for many agent loops a day.**
 - [ ] **The review brief:** what changed since the last reviewed revision, and requirement coverage next to the evidence.
 - [ ] **A study with reviewers** of whether the brief saves review time without missing defects. Until it is measured, OpenHarnX makes no claim that it does.

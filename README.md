@@ -211,9 +211,9 @@ Commit `ohx.toml` and `contracts/`; keep `.claude/settings.local.json` (written 
 
 ## Experimental
 
-Working and tested, outside the 0.1.1 boundary: TypeScript and JavaScript projects (Vitest, Jest, `node --test`; in CI with `environment = "npm"` protecting `node_modules`), Go projects (`go test`), an advisory mutation check (changes the lines your change touched and reports any change the acceptance tests did not notice; 120 seconds unless `mutation_budget_s` says otherwise), `ohx bug` (an agent investigates a bug read-only, you approve the rule and tests, the agent fixes, the gate verifies) and `ohx trace` (requirement coverage).
+Working and tested, outside the 0.1.1 boundary: TypeScript and JavaScript projects (Vitest, Jest, `node --test`; in CI with `environment = "npm"` protecting `node_modules`), Go projects (`go test`), an advisory mutation check (changes the lines your change touched and reports any change the acceptance tests did not notice; 120 seconds unless `mutation_budget_s` says otherwise), `ohx bug` (an agent investigates a bug read-only, you approve the rule and tests, the agent fixes, the gate verifies), `ohx trace` (requirement coverage), and local verification on Linux (tried in a Debian 13 arm64 container under srt with `ci/linux/local_trial.sh`, not yet on a physical machine or x86_64).
 
-**Not supported:** Linux outside CI, Windows, pnpm and Yarn lockfiles, Playwright, more than one agent at a time.
+**Not supported:** Windows, pnpm and Yarn lockfiles, Playwright, more than one agent at a time.
 
 ## Evidence so far
 
