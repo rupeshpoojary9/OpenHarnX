@@ -4,7 +4,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/openharnx/"><img alt="PyPI" src="https://img.shields.io/pypi/v/openharnx"></a>
+  <a href="https://pypi.org/project/openharnx/"><img alt="PyPI" src="https://img.shields.io/pypi/v/openharnx?cacheSeconds=3600"></a>
   <a href="https://github.com/rupeshpoojary9/OpenHarnX/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/rupeshpoojary9/OpenHarnX"></a>
   <a href="https://github.com/rupeshpoojary9/OpenHarnX/blob/main/LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
   <img alt="Python 3.12+" src="https://img.shields.io/badge/python-3.12%2B-blue">

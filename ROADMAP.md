@@ -7,7 +7,7 @@ What is released and supported today is in the [README](https://github.com/rupes
 ## Released
 
 - [x] **0.1.0:** locked tests, sandboxed verification, verdicts that say what they support, the review brief, the Claude Code Stop hook, the CI gate (GitHub Action, GitLab and Jenkins examples), signed evidence locally and in CI, a fingerprinted checker interpreter.
-- [ ] **0.1.1:** published to PyPI (`uv tool install openharnx`) through trusted publishing; a README that works as the PyPI page; the logo follows GitHub's theme.
+- [x] **0.1.1:** published to PyPI (`uv tool install openharnx`) through trusted publishing; a README that works as the PyPI page; the logo follows GitHub's theme.
 
 ## Next (0.1.x)
 
