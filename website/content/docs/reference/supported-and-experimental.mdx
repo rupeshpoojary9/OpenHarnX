@@ -1,0 +1,53 @@
+---
+title: Supported and experimental features
+description: Where 0.1.0 makes claims, where it works without claims, and what it does not support.
+---
+
+**Supported** means covered by the [release criteria](/docs/reference/release-criteria): each claim names the tests that prove it, and a way around it is a [vulnerability](/docs/trust/vulnerability-reporting). **Experimental** means working and tested, outside that boundary, with no claim of protection.
+
+## Supported in 0.1.0
+
+| Feature | Notes |
+|---|---|
+| Python projects tested with pytest | The locked suite is `tests/` |
+| Local verification on macOS arm64 | With `srt` 0.0.77 |
+| CI gate on Linux | GitHub Action tested on `ubuntu-24.04`; GitLab and Jenkins examples, their commands tested on Linux |
+| `ohx init --lock-tests` and `ohx contract new` | Locked tests and acceptance tests |
+| `ohx verify`, `ohx report`, `ohx audit`, `ohx store check` | Verdicts, review brief, evidence store |
+| `ohx hook install` | Claude Code Stop hook |
+| `ohx gate`, `ohx approve-tests` | CI gate and approvals |
+| `ohx history` | What the gate would have said about merged changes |
+| Protected Python environment | `environment = "uv"` |
+| Signed evidence | SSH key locally; Sigstore in GitHub Actions for public repositories |
+
+## Experimental
+
+### TypeScript and JavaScript
+
+Vitest, Jest and `node --test`. Test files are locked wherever they are: every `*.test.*`, `*.spec.*` and `__tests__/` file. In CI use `environment = "npm"`, so the gate installs from the base's `package-lock.json` with install scripts off, and never run `npm ci` on the change before the gate. Node's own runner reads TypeScript from Node 22.18.
+
+### Go
+
+`go test -json -count=1 ./...` when the base has `go.mod`. Every `_test.go` file is locked at its path. Fill the module cache before the gate with `go mod download`; checks then run without network.
+
+### Mutation check
+
+An advisory check that changes the lines your change touched and reports any change the acceptance tests did not notice. It runs for contracts with acceptance tests, takes up to 120 seconds unless `mutation_budget_s` says otherwise, and never changes the verdict. Surviving mutants appear as a decision in the brief.
+
+### `ohx bug`
+
+From an issue to a verified fix through one coding agent: the agent investigates read-only (`ohx bug new`), you read and approve the proposed rule and tests (`ohx bug show`, `ohx bug approve`), the agent fixes and the gate verifies (`ohx bug fix`). It drives a coding agent, which calls a model and can cost money; `--budget` caps the spend in USD (default 2.0) and `--attempts` the tries (default 2).
+
+### `ohx trace`
+
+Splits requirement documents into numbered units (`ohx trace init`), links them to tests and reports every unit without evidence (`ohx trace check`).
+
+## Not supported
+
+- Linux outside CI
+- Windows
+- pnpm and Yarn lockfiles
+- Playwright
+- More than one agent at a time
+
+On these, OpenHarnX makes no claim of protection.

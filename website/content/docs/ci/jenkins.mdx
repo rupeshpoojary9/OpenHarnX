@@ -1,0 +1,26 @@
+---
+title: Jenkins
+description: Run the gate on multibranch pull requests with the example Jenkinsfile from the repository.
+---
+
+<Callout type="limit">
+This example's commands are tested on Linux under `srt` by `ci/linux/examples_probe.sh`. Jenkins itself has not been tested in a pilot yet.
+</Callout>
+
+## The pipeline
+
+The repository's example, shown as is:
+
+<RepoFile path="docs/ci/Jenkinsfile" lang="groovy" />
+
+- Build the agent image `ohx-linux` from the repository's `ci/linux/Dockerfile`.
+- Set `OHX_VERSION` to the commit SHA of the OpenHarnX version you trust. For 0.1.0 that is `01626665a341812ded02c0559f5428c2e71d5ef1`.
+- The Docker options let bubblewrap create its namespaces and mount `/proc`.
+
+## Trust
+
+Jenkins's GitHub Branch Source can take the Jenkinsfile from the target branch for untrusted contributors (the "Trust" setting). That also stops a change from editing the pipeline that judges it. Use ephemeral agents for untrusted changes, not a persistent shared agent, and require the status on the pull request.
+
+## Approvals
+
+Approve intended test changes with a signed `ohx approve-tests`, and fetch `refs/notes/ohx-approvals` before the gate, or pass `--approval-file`. See [approve intentional test changes](/docs/workflows/approve-test-changes).

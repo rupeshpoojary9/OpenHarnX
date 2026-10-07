@@ -1,0 +1,41 @@
+---
+title: Use other coding agents
+description: OpenHarnX reads the change and the test runs, not the agent, so any agent's work can be checked with the CLI or the CI gate.
+---
+
+Verification does not depend on which agent wrote the code. There is no built-in integration for agents other than Claude Code in 0.1.0, and the table below says what has been tested.
+
+## Run it by hand
+
+Lock the tests before the agent starts, and verify when it finishes:
+
+```bash
+ohx init --lock-tests          # once, or ohx contract new for a task
+# ... let the agent work ...
+ohx verify --sandbox srt
+ohx report
+```
+
+`ohx verify` exits `0` for READY or NO REGRESSIONS and `10` otherwise, so a script or an agent's own "run this when done" step can use the exit code. Paste the "What remains unverified" section back to the agent if it is blocked.
+
+## Or let CI judge the pull request
+
+Any agent that opens pull requests can be judged by the [CI gate](/docs/ci/github-actions). The gate runs the base branch's tests against the change and uses the base's policy, so the agent cannot alter what judges it.
+
+## What has been tested
+
+| Agent | Integration | Tested |
+|---|---|---|
+| Claude Code | Built-in Stop hook (`ohx hook install`) | End to end, including a headless run that a hook verdict reached |
+| GitHub Copilot coding agent | None needed: the CI gate judges its pull requests | Replayed after the fact on 20 merged pull requests in github/spec-kit |
+| Codex, Cursor, OpenCode, Antigravity, Aider and others | `ohx verify` by hand, or the CI gate | Not tested with these agents yet |
+
+Built-in integrations for other agents are on the [roadmap](/docs/roadmap). Each depends on the agent offering a way to run a command when it finishes, and ships only after a live run with that agent is recorded. A [trial report](https://github.com/rupeshpoojary9/OpenHarnX/issues/new?template=trial-report.yml) from one of them helps decide the order.
+
+## History of changes already merged
+
+```bash
+ohx history --last 20
+```
+
+Shows what the gate would have said about recent commits, and marks the ones made by coding agents (`--agents-only` keeps only those). It writes `ohx-history/history.md` and `history.json`.

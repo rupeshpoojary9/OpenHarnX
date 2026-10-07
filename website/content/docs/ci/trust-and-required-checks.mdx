@@ -1,0 +1,41 @@
+---
+title: Trusted base and required checks
+description: The verdict comes from the base branch. These rules keep the change under review from altering what judges it.
+---
+
+The gate is only as strong as the separation between what judges and what is judged.
+
+## Rules
+
+- **Install the gate from a pinned version you trust**: a commit SHA, never the change under review. The GitHub Action installs itself from its own source, so pinning the action pins the gate.
+- **The verdict comes from the base.** `ohx gate` reads the base commit's tests, `ohx.toml` and check configuration. Nothing the change adds to them is used.
+- **No secrets in the job.** The gate makes no model calls and needs no credentials. Leave signing keys out (`OHX_SIGNING_KEY=none`). The code under review starts with none of the runner's environment variables.
+- **Untrusted changes run on throwaway runners.** A pull request from outside the team executes its code (tests, build steps) inside the sandbox. Use ephemeral runners, not a persistent shared agent.
+- **Make the job a required check**, so a blocked change cannot be merged: a required status check on GitHub, "Pipelines must succeed" on GitLab, a required status on Jenkins.
+
+## On GitHub
+
+- Use only the `pull_request` trigger and a read-only token.
+- GitHub runs a `pull_request` workflow from the pull request itself, so a pull request could edit the workflow. Protect `.github/` and `action.yml` with code-owner review and require the gate's status check. OpenHarnX's own repository does this.
+- Require approval before workflows from outside contributors run.
+
+<Callout type="limit">
+Still open on GitHub (threat model G10): an administrator can push past branch protection, and a pull request that edits the workflow still runs its own version until a review stops the merge.
+</Callout>
+
+## What the gate prevents and detects
+
+| Threat | Status |
+|---|---|
+| Pull request code reads the runner's secrets or token | Prevented |
+| Pull request code changes the runner's files to influence later steps | Prevented under `srt` |
+| Edited or deleted tests, ignored contract or policy changes | Prevented |
+| Weakening patterns (skips, suppressions, loosened configuration) in Python, TypeScript and Go | Detected (BLOCKED) |
+| The pull request replaces the gate, the action or a tool the workflow uses | Prevented |
+| A changed lockfile, or install scripts running on the runner | Prevented with `environment = "uv"` or `"npm"` |
+| A run that collected no tests reads as a pass | Prevented |
+| The sandbox does not start and a check reads as passed | Detected: never READY |
+
+The full list, with the tests behind each line, is the [threat model](/docs/trust/threat-model), section "The gate".
+
+Not claimed: that tests are good enough to catch a wrong change, safety on self-hosted or shared runners that keep state between jobs, Windows, and languages other than Python, TypeScript, JavaScript and Go.

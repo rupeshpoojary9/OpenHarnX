@@ -1,0 +1,32 @@
+---
+title: Evidence and stale reports
+description: Every result is bound to the exact files, contract, checker and environment it judged. Change any of them and the result no longer stands.
+---
+
+## What evidence is bound to
+
+- **The candidate**: a digest over every tracked and untracked, non-ignored file, including what symlinks resolve to. It is computed before and after the checks. If it changed during verification, every result of that run is invalid.
+- **The contract revision** the report judged.
+- **The checker and its interpreter.** A checker such as `{python} -m pytest` runs so that a file in the candidate cannot replace it or a module it imports.
+- **The environment.** With `environment = "uv"`, checks run from an environment built from the accepted `uv.lock` in the store. Without it, the interpreter's environment is fingerprinted at acceptance. Any later change (for example a `.pth` file dropped into site-packages) makes every check invalid and names the files.
+
+## Where it is kept
+
+The evidence store lives in `~/.openharnx`, or `OHX_HOME`. It is a hash chain of records, append-only, outside the repository and outside the agent's sandbox when OpenHarnX launches the agent. Each command that writes evidence signs the chain head with your SSH key.
+
+```bash
+ohx audit         # who did what and touched what
+ohx store check   # verify the chain, every record's digest and the signatures
+```
+
+## Stale reports
+
+After a report is made, any edit to the files or the contract makes it STALE. `ohx report` re-checks the saved report against the current files and says which files changed since. The brief's "What was verified" section then opens by saying the results are for an earlier state. Run `ohx verify` again.
+
+## Invalid reports
+
+A report is INVALID when the evidence cannot be trusted: the candidate changed while it was checked, a saved verdict, a check's output or a locked copy was edited or removed, a signature does not verify, or the checker's environment changed after acceptance. Do not rely on it. Find out what changed, then verify again.
+
+<Callout type="limit">
+Not covered by the environment fingerprint: changes made before the contract was accepted, compiled `__pycache__` files, code loaded from folders a `.pth` file points to, and a user with root who resets change times. `environment = "uv"` prevents these for Python projects with a `uv.lock`.
+</Callout>

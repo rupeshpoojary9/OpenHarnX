@@ -1,0 +1,2 @@
+wrote <tmp>/shop2/contracts/0001-percentage-coupons.toml
+accepted

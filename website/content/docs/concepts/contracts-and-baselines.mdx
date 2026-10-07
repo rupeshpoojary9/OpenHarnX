@@ -1,0 +1,61 @@
+---
+title: Contracts and regression baselines
+description: A contract is what was agreed before the change. The baseline is what passed when it was agreed.
+---
+
+## The contract
+
+A contract records what must hold for a change to pass: which checks run, which are mandatory, and which tests were agreed. It is accepted before the agent starts. Accepting it copies the protected material (acceptance tests, the locked suite) into the OpenHarnX store, outside the repository, and records who accepted it.
+
+There are three ways to get one:
+
+| How | Mode | Acceptance tests | Passing verdict |
+|---|---|---|---|
+| `ohx init --lock-tests` | `suite` | none | NO REGRESSIONS |
+| `ohx contract new --acceptance … --accept` | `bugfix` or `task` | the files you name | READY |
+| `ohx gate` in CI, no `--contract` | `gate` | none | NO REGRESSIONS |
+
+`ohx contract new` writes a file you commit, `contracts/NNNN-<title>.toml`. This one was written by `ohx 0.1.0` for the demo task, with a project that defines a lint check in `ohx.toml`:
+
+```toml
+title = "Percentage coupons"
+mode = "task"
+change_summary = "order_total takes a percentage coupon as well as a fixed one"
+python = ".venv/bin/python"
+
+[[obligations]]
+id = "acceptance-test_percent_coupon"
+kind = "acceptance"
+mandatory = true
+protected = "../tests/test_percent_coupon.py"
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "{protected}"]
+
+[[obligations]]
+id = "lint"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "pyflakes", "."]
+```
+
+(The `python` path is shortened here; `ohx` writes the one it found.) `{protected}` runs the locked copy, never the file in the repository. You can also write a contract by hand and accept it with `ohx contract accept <file>`. Fields are in the [configuration reference](/docs/reference/configuration).
+
+## The regression baseline
+
+When a contract is accepted, every regression suite runs once and its per-test results are recorded. Later runs are compared test by test:
+
+- a test that passed then and fails, is skipped or no longer runs now blocks (`no-new-failures`);
+- a new test that fails blocks;
+- a test that failed then and still fails is reported, not blamed on the change;
+- a suite with no per-test results that was already failing is unknown.
+
+## Changing a contract
+
+Revise it explicitly: lock again, or accept a new revision. Every revision is kept in the store's history, which is append-only. The report always names the revision it judged, and a change to the contract after verification makes the report stale.
+
+## Weakening
+
+The built-in `weakening` check compares the candidate with what was accepted. It finds removed tests, removed assertions, new skip or xfail markers, new lint or type-check suppressions, changed pytest options, a new `conftest.py` and a changed `ohx.toml`.
+
+<Callout type="limit">
+Not detected: weakened assertions (an assertion made looser rather than removed), suppressions moved rather than added, and import-time side effects of new test files. What was accepted still runs: a `conftest.py` or plugin already in the repository at acceptance runs inside pytest.
+</Callout>

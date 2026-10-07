@@ -1,0 +1,39 @@
+---
+title: Releases
+description: Every release is a signed tag on a commit that OpenHarnX verified READY and whose CI gate passed.
+---
+
+## 0.1.0, 2026-10-06
+
+The first release. [Release notes on GitHub](https://github.com/rupeshpoojary9/OpenHarnX/releases/tag/v0.1.0).
+
+- Commit `01626665a341812ded02c0559f5428c2e71d5ef1`, signed tag `v0.1.0`.
+- The gate passed on this exact commit in GitHub Actions under the `srt` sandbox ([run 37478954436](https://github.com/rupeshpoojary9/OpenHarnX/actions/runs/37478954436)), and its report carries a Sigstore attestation from that workflow.
+
+```bash
+uv tool install git+https://github.com/rupeshpoojary9/OpenHarnX@01626665a341812ded02c0559f5428c2e71d5ef1
+```
+
+**In it:** locked tests and acceptance tests, sandboxed verification, verdicts that say what they support, the review brief, the Claude Code Stop hook, the CI gate (GitHub Action, GitLab and Jenkins examples), signed evidence locally and in CI, and a fingerprinted checker interpreter.
+
+## Next: 0.1.1
+
+Prepared on `main`, not released yet: publishing to PyPI through trusted publishing, so `uv tool install openharnx` works, and a README that works as the PyPI page. Until it is released, install 0.1.0 from GitHub as shown above. See the [roadmap](/docs/roadmap).
+
+## How releases are made
+
+1. The commit is on `main`, verified READY under `srt` by an earlier installed OpenHarnX, with the GitHub Actions gate green.
+2. `version` in `pyproject.toml` is set to the release number, verified READY and committed.
+3. The commit is tagged with an annotated, signed tag and pushed.
+4. The GitHub release names the full commit SHA, the changes and the release criteria met.
+5. From 0.1.1, publishing the release starts a workflow that builds the package and uploads it to PyPI through trusted publishing after the owner approves it. No token is stored.
+
+The full procedure is [docs/releasing.md](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/releasing.md).
+
+## Supported versions
+
+Only the latest release receives fixes.
+
+## Pin what you run
+
+A tag can be moved; a commit cannot. In CI, install by the commit SHA from the release notes and keep it in the workflow.

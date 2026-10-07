@@ -1,0 +1,48 @@
+---
+title: Introduction
+description: OpenHarnX checks the work of the coding agent you already use. It protects the tests you agreed on, runs them where the change cannot interfere, and writes a review brief that separates what was verified from what was not.
+---
+
+A coding agent reports success when the tests pass. Tests can be made to pass without doing the task: rewrite an assertion to expect the new output, mark the inconvenient test as skipped, delete it as obsolete, or change the configuration so it is not collected. Plain `pytest` agrees, and the agent says "All tests pass".
+
+OpenHarnX sits between trusting that summary and reading every line yourself.
+
+## What it does
+
+1. **Locks the tests that must keep passing** before the agent starts: your existing suite (`ohx init --lock-tests`), or acceptance tests agreed for one task (`ohx contract new`). A baseline records which tests passed.
+2. **Lets the agent work** as it normally does. You keep your agent.
+3. **Verifies the change** with `ohx verify`: the locked copies run, not the agent's edited files, inside the `srt` sandbox, from an interpreter the change cannot replace. Per-test results are compared with the baseline and weakened tests or configuration are flagged.
+4. **Writes a review brief**: what was asked, which files changed, what was verified (each claim linked to the check's output), what remains unverified and the decisions left to you.
+
+The gate and the report make **no model calls** and need no API key. Verdicts come from checks that ran.
+
+## What a verdict means
+
+| Verdict | Meaning |
+|---|---|
+| <Verdict v="READY" /> | Every mandatory check passed, including acceptance tests agreed for the task |
+| <Verdict v="NO REGRESSIONS" /> | Every mandatory check passed and nothing that passed before broke. No acceptance tests were agreed, so nothing shows the task is done |
+| <Verdict v="BLOCKED" /> | A mandatory check failed: a broken test, a weakened test, changed check configuration |
+| <Verdict v="UNKNOWN" /> | A mandatory check could not give a result. Never counted as a pass |
+| <Verdict v="INVALID" /> | The evidence cannot be trusted |
+| <Verdict v="STALE" /> | The files or the contract changed after the report was made |
+
+<Callout type="warning">
+A verdict is evidence about the checks that ran. It does not show that the change is correct beyond what the tests check, and it never authorizes a merge, a deploy or a release.
+</Callout>
+
+## Where it runs
+
+- **Locally**, from the command line after your agent finishes, on any agent's work.
+- **As a Claude Code Stop hook**, so Claude Code is verified when it says it is done and a blocked agent is sent back with what failed.
+- **In CI**, as a gate on pull requests: a GitHub Action, with GitLab CI and Jenkins examples.
+
+The 0.1.0 release supports Python projects tested with pytest, on macOS (arm64) locally and on Linux in CI, with `srt` as the sandbox. See [supported environments](/docs/supported-environments).
+
+## Where to go next
+
+- [Install OpenHarnX](/docs/installation), then [run the demo](/docs/run-the-demo) to watch it catch a gamed test run.
+- [Verify your first change](/docs/first-verification) on your own repository.
+- Read the [security model](/docs/trust/security-model) for what is prevented, what is detected and what is still open.
+
+OpenHarnX checks the work of one agent at a time. It is not an agent and does not plan, staff or orchestrate agents.

@@ -1,0 +1,84 @@
+---
+title: Configuration reference
+description: Every field OpenHarnX 0.1.0 reads from ohx.toml and contract files, with its default. Nothing else is read.
+---
+
+`ohx.toml` at the repository root holds project defaults. `ohx contract new` copies them into each contract, `ohx init --lock-tests` and `ohx gate` read them, and in CI only the base branch's `ohx.toml` counts. Commit it. A change to `ohx.toml` is a weakening finding.
+
+## Project settings
+
+| Field | Type | Default | Meaning |
+|---|---|---|---|
+| `python` | path | `.venv` or `venv`, else the active virtual environment | The interpreter checks run with. `{python}` and `{bindir}` in commands point to it |
+| `environment` | `"uv"` or `"npm"` | none | `"uv"`: checks run from an environment OpenHarnX builds from the accepted `uv.lock`, locked wheels only. `"npm"` (experimental): installs from the base's `package-lock.json` with install scripts off. A changed lockfile runs nothing |
+| `pytest_args` | list of strings | `[]` | Added to the locked run and the default `tests` run, for example `["-n", "auto"]` for pytest-xdist |
+| `suite_timeout_s` | positive number | `300` | Seconds each whole suite OpenHarnX adds may run |
+| `approvers` | list of strings | none | Who may sign test-change approvals: `"name ssh-ed25519 AAAA…"`. Read from the base only |
+| `js_runner` | `"vitest"`, `"jest"` or `"node"` | from `package.json` | Experimental. Vitest or Jest when `package.json` lists it, else Node's own runner |
+| `mutation_budget_s` | positive number | `120` | Experimental. Seconds the advisory mutation check may take |
+
+## Checks: `[[obligations]]`
+
+Each table adds one check.
+
+| Field | Type | Default | Meaning |
+|---|---|---|---|
+| `id` | string | required | Unique name, shown in reports |
+| `kind` | `"acceptance"`, `"regression"` or `"check"` | required | Acceptance tests prove the task; regression suites get a per-test baseline; checks are commands such as linters |
+| `mandatory` | `true` or `false` | required | Only mandatory checks decide the verdict |
+| `command` | list of strings | required | The command, without a shell |
+| `timeout_s` | positive integer | `300` | Seconds before the check is stopped and reported unknown |
+| `env` | table of strings | `{}` | Extra environment variables for the check |
+| `protected` | path | none | A file or folder copied into the store at acceptance. Relative to the contract file |
+
+```toml
+python = ".venv/bin/python"
+environment = "uv"
+pytest_args = ["-n", "auto"]
+suite_timeout_s = 1200
+
+[[obligations]]
+id = "lint"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "check", "--no-cache", "."]
+
+[[obligations]]
+id = "types"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "mypy", "--cache-dir", "{tmp}/mypy"]
+```
+
+This is a shortened version of OpenHarnX's own `ohx.toml`. Keep caches in `{tmp}` or turn them off, so verification never writes into the candidate and can run sandboxed.
+
+## Placeholders in commands
+
+| Placeholder | Expands to |
+|---|---|
+| `{python}` | The checker interpreter |
+| `{bindir}` | The folder of the checker interpreter, for console scripts such as `{bindir}/lint-imports` |
+| `{tmp}` | The run's own temporary folder, the only place a sandboxed check may write |
+| `{protected}` | The locked copy of the check's `protected` path |
+| `{candidate}` | The candidate being judged |
+| `{junit}` | Where a JUnit-writing runner should put per-test results |
+
+`{python} -m <module>` checkers start through a launcher, so a file in the candidate cannot replace the module. Other commands are not covered by that protection.
+
+## Contract files only
+
+| Field | Meaning |
+|---|---|
+| `title` | Required |
+| `mode` | `bugfix` or `task` for contracts you write. `suite` and `gate` are made by `ohx init --lock-tests` and `ohx gate` |
+| `change_summary` | Required. One line; becomes the report's changelog entry |
+
+A `bugfix` or `task` contract needs at least one mandatory acceptance check.
+
+## Environment variables
+
+| Variable | Meaning |
+|---|---|
+| `OHX_HOME` | The evidence store. Default `~/.openharnx` |
+| `OHX_SIGNING_KEY` | The SSH key to sign evidence with, or `none` to turn signing off. Default: git's SSH signing key, else `~/.ssh/id_ed25519`, `id_ecdsa` or `id_rsa` |
+| `OHX_SRT` | Path to `srt`, when it is not on `PATH` |
