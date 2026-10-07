@@ -1,0 +1,43 @@
+title = "Publish to PyPI through trusted publishing"
+mode = "task"
+change_summary = "A publish workflow uploads a release to PyPI with no stored secret: it runs only on a published release, the version must match the tag, only the upload job asks for a PyPI identity, in the owner-approved pypi environment, without running the code; the package metadata points to the project and every README link works on PyPI (T101)."
+python = ".venv/bin/python"
+environment = "uv"
+
+[[obligations]]
+id = "acceptance-test_publish"
+kind = "acceptance"
+mandatory = true
+protected = "../tests/test_publish.py"
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "{protected}"]
+
+[[obligations]]
+id = "format"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "format", "--check", "--no-cache", "."]
+
+[[obligations]]
+id = "lint"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "check", "--no-cache", "."]
+
+[[obligations]]
+id = "types"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "mypy", "--cache-dir", "{tmp}/mypy"]
+
+[[obligations]]
+id = "layers"
+kind = "check"
+mandatory = true
+command = ["{bindir}/lint-imports", "--no-cache"]
+
+[[obligations]]
+id = "tests"
+kind = "regression"
+mandatory = true
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "-n", "auto"]
+timeout_s = 1200
