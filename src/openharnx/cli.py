@@ -33,10 +33,11 @@ from openharnx.app.history import history as history_rows
 from openharnx.app.history import write as write_history
 from openharnx.app.hook import install as hook_install
 from openharnx.app.hook import main_stop as hook_main_stop
+from openharnx.app.setup import diagnose
 from openharnx.app.signed_approval import NOTES_REF
 from openharnx.app.signed_approval import approve as approve_tests
 from openharnx.app.trace import trace_approve, trace_check, trace_init
-from openharnx.doctor import run_checks
+from openharnx.doctor import CheckResult
 from openharnx.report import PASSING, render_markdown
 from openharnx.signing import SigningError
 
@@ -44,6 +45,11 @@ EXIT_OK = 0
 EXIT_INTERNAL = 1
 EXIT_USAGE = 2
 EXIT_BLOCKED = 10
+
+
+def run_checks() -> list[CheckResult]:
+    """Everything `ohx doctor` checks, for the repository it runs in (T103)."""
+    return diagnose(Path.cwd())
 
 
 def _cmd_doctor(_: argparse.Namespace) -> int:
