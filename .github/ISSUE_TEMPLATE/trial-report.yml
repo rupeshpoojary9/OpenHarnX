@@ -1,0 +1,63 @@
+name: Trial report
+description: You ran OpenHarnX on a real change. Tell us whether it caught something useful or blocked legitimate work.
+title: "Trial: "
+labels: ["trial-report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying OpenHarnX. A short report helps more than a polished one. Leave out anything private: code, secrets, internal names.
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: What happened?
+      options:
+        - It caught a real problem
+        - It passed a change that was fine
+        - It blocked a change that was fine
+        - It passed a change that was broken
+        - I could not get it to run
+        - Something else
+    validations:
+      required: true
+  - type: dropdown
+    id: verdict
+    attributes:
+      label: The verdict
+      options:
+        - READY
+        - NO REGRESSIONS
+        - BLOCKED
+        - UNKNOWN
+        - INVALID
+        - No verdict
+    validations:
+      required: true
+  - type: textarea
+    id: story
+    attributes:
+      label: The change and what the report said
+      description: What the agent was asked to do, what it changed, and the lines of the review brief that mattered (ohx report).
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Coding agent
+      options:
+        - Claude Code
+        - Codex
+        - Cursor
+        - GitHub Copilot
+        - Other
+        - None (written by hand)
+  - type: input
+    id: setup
+    attributes:
+      label: Setup
+      description: "`ohx --version`, OS, Python version, local or CI, and how you set it up (ohx init --lock-tests, ohx contract new, the GitHub Action)."
+  - type: textarea
+    id: review
+    attributes:
+      label: Did it change how you reviewed the change?
+      description: Optional. What you checked by hand, what you skipped, roughly how long it took.
