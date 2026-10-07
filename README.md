@@ -1,9 +1,6 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/rupeshpoojary9/OpenHarnX/main/docs/assets/openharnx-logo-light.png">
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/rupeshpoojary9/OpenHarnX/main/docs/assets/openharnx-logo-dark.png">
-    <img src="https://raw.githubusercontent.com/rupeshpoojary9/OpenHarnX/main/docs/assets/openharnx-logo-light.png" alt="OpenHarnX: an open-source verifier for code written by AI coding agents" width="600">
-  </picture>
+  <a href="https://github.com/rupeshpoojary9/OpenHarnX#gh-light-mode-only"><img src="https://raw.githubusercontent.com/rupeshpoojary9/OpenHarnX/main/docs/assets/openharnx-logo-light.png" alt="OpenHarnX: an open-source verifier for code written by AI coding agents" width="600"></a>
+  <a href="https://github.com/rupeshpoojary9/OpenHarnX#gh-dark-mode-only"><img src="https://raw.githubusercontent.com/rupeshpoojary9/OpenHarnX/main/docs/assets/openharnx-logo-dark.png" alt="OpenHarnX: an open-source verifier for code written by AI coding agents" width="600"></a>
 </p>
 
 <p align="center">

@@ -116,3 +116,17 @@ def test_the_readme_installs_from_pypi_and_still_names_the_sandbox() -> None:
 def test_releasing_says_how_a_release_reaches_pypi() -> None:
     text = (ROOT / "docs" / "releasing.md").read_text(encoding="utf-8")
     assert "publish.yml" in text and "pypi" in text and "approv" in text
+
+
+def test_the_logo_follows_githubs_theme_not_the_computers() -> None:
+    """Found 2026-10-07: a `<picture>` with `prefers-color-scheme` follows the computer's
+    theme, so with GitHub set to light and macOS to dark the white logo showed on a white
+    page. GitHub hides a link ending in `#gh-dark-mode-only` or `#gh-light-mode-only`
+    by its own theme setting."""
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    head = readme.split("# OpenHarnX", 1)[0]
+    assert "<picture>" not in head and "prefers-color-scheme" not in head
+    light = re.search(r'href="[^"]+#gh-light-mode-only"><img src="([^"]+)"', head)
+    dark = re.search(r'href="[^"]+#gh-dark-mode-only"><img src="([^"]+)"', head)
+    assert light and light.group(1).endswith("openharnx-logo-light.png")
+    assert dark and dark.group(1).endswith("openharnx-logo-dark.png")
