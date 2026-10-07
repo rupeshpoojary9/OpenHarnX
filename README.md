@@ -7,8 +7,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/rupeshpoojary9/OpenHarnX/releases/tag/v0.1.0"><img alt="Release 0.1.0" src="https://img.shields.io/github/v/release/rupeshpoojary9/OpenHarnX"></a>
-  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
+  <a href="https://pypi.org/project/openharnx/"><img alt="PyPI" src="https://img.shields.io/pypi/v/openharnx"></a>
+  <a href="https://github.com/rupeshpoojary9/OpenHarnX/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/rupeshpoojary9/OpenHarnX"></a>
+  <a href="https://github.com/rupeshpoojary9/OpenHarnX/blob/main/LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
   <img alt="Python 3.12+" src="https://img.shields.io/badge/python-3.12%2B-blue">
 </p>
 
@@ -20,30 +21,30 @@ OpenHarnX is an open-source verifier for changes written by AI coding agents suc
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/rupeshpoojary9/OpenHarnX/main/docs/assets/cheat-demo.gif" alt="Scripted demo: an agent rewrites one test and skips another, plain pytest passes, OpenHarnX says BLOCKED; the genuine fix passes and the review brief shows what is left to decide" width="820">
-  <br><em>The <a href="examples/cheat-demo">cheat demo</a>, scripted: no model ran. 45 seconds.</em>
+  <br><em>The <a href="https://github.com/rupeshpoojary9/OpenHarnX/tree/main/examples/cheat-demo">cheat demo</a>, scripted: no model ran. 45 seconds.</em>
 </p>
 
 **Try it:** run the demo, then run OpenHarnX on one change to a Python project. [Tell us](https://github.com/rupeshpoojary9/OpenHarnX/issues/new?template=trial-report.yml) whether the report caught something useful or blocked legitimate work.
 
 It works locally, as a Claude Code hook, and as a CI gate for pull requests (a GitHub Action, with GitLab CI and Jenkins examples). It catches the ways an agent can get a green test run without doing the work: editing or deleting a test, adding a skip marker, loosening the test configuration, breaking tests that passed before, or tampering with the environment the tests run in.
 
-**Early release (0.1.0).** Tested on its own development, on replays of public agent runs and pull requests, and with simulated users. It has no production users yet, and nothing here claims that reviews get faster or that changes are safe.
+**Early release (0.1.1).** Tested on its own development, on replays of public agent runs and pull requests, and with simulated users. It has no production users yet, and nothing here claims that reviews get faster or that changes are safe.
 
 ## Contents
 
-- [Why OpenHarnX](#why-openharnx)
-- [How it works](#how-it-works)
-- [Quick start](#quick-start)
-- [What a report looks like](#what-a-report-looks-like)
-- [Verdicts](#verdicts)
-- [What it catches](#what-it-catches)
-- [Use it with your coding agent](#use-it-with-your-coding-agent)
-- [Use it in CI](#use-it-in-ci)
-- [Supported in 0.1.0](#supported-in-010)
-- [Evidence so far](#evidence-so-far)
-- [FAQ](#faq)
-- [Documentation](#documentation)
-- [Contributing and roadmap](#contributing-and-roadmap)
+- [Why OpenHarnX](https://github.com/rupeshpoojary9/OpenHarnX#why-openharnx)
+- [How it works](https://github.com/rupeshpoojary9/OpenHarnX#how-it-works)
+- [Quick start](https://github.com/rupeshpoojary9/OpenHarnX#quick-start)
+- [What a report looks like](https://github.com/rupeshpoojary9/OpenHarnX#what-a-report-looks-like)
+- [Verdicts](https://github.com/rupeshpoojary9/OpenHarnX#verdicts)
+- [What it catches](https://github.com/rupeshpoojary9/OpenHarnX#what-it-catches)
+- [Use it with your coding agent](https://github.com/rupeshpoojary9/OpenHarnX#use-it-with-your-coding-agent)
+- [Use it in CI](https://github.com/rupeshpoojary9/OpenHarnX#use-it-in-ci)
+- [Supported in 0.1.1](https://github.com/rupeshpoojary9/OpenHarnX#supported-in-011)
+- [Evidence so far](https://github.com/rupeshpoojary9/OpenHarnX#evidence-so-far)
+- [FAQ](https://github.com/rupeshpoojary9/OpenHarnX#faq)
+- [Documentation](https://github.com/rupeshpoojary9/OpenHarnX#documentation)
+- [Contributing and roadmap](https://github.com/rupeshpoojary9/OpenHarnX#contributing-and-roadmap)
 
 ## Why OpenHarnX
 
@@ -70,11 +71,11 @@ flowchart LR
 
 ## Quick start
 
-0.1.0 supports Python projects tested with pytest, on macOS locally and Linux in CI ([details](#supported-in-010)). You need Python 3.12 or newer, [uv](https://docs.astral.sh/uv/), git and, for the sandbox, Node 20 or later.
+0.1.1 supports Python projects tested with pytest, on macOS locally and Linux in CI ([details](https://github.com/rupeshpoojary9/OpenHarnX#supported-in-011)). You need Python 3.12 or newer, [uv](https://docs.astral.sh/uv/), git and, for the sandbox, Node 20 or later.
 
 ```bash
-# 1. Install OpenHarnX (pinned) and the sandbox it runs checks in
-uv tool install git+https://github.com/rupeshpoojary9/OpenHarnX@v0.1.0
+# 1. Install OpenHarnX and the sandbox it runs checks in (srt comes from npm)
+uv tool install openharnx
 npm install -g @anthropic-ai/sandbox-runtime@0.0.77     # provides `srt`
 ohx doctor
 
@@ -123,7 +124,7 @@ Each verified line links to that check's full output. The brief for the demo's c
 
 <p align="center"><img src="https://raw.githubusercontent.com/rupeshpoojary9/OpenHarnX/main/docs/assets/report-blocked.png" alt="Review brief of a blocked change: two locked tests that passed before now fail or are skipped, a new skip marker, and the decisions left to the reviewer" width="760"></p>
 
-The full examples, before and after the brief, are in [docs/tasks/T96.md](docs/tasks/T96.md#before-and-after).
+The full examples, before and after the brief, are in [docs/tasks/T96.md](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/tasks/T96.md#before-and-after).
 
 ## Verdicts
 
@@ -140,7 +141,7 @@ A verdict is evidence about the checks that ran. It never authorizes a merge, a 
 
 ## What it catches
 
-Each of these is covered by tests, listed in the [threat model](docs/threat-model.md) with what is prevented, what is detected and what is still open.
+Each of these is covered by tests, listed in the [threat model](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/threat-model.md) with what is prevented, what is detected and what is still open.
 
 - **Edited, deleted or skipped tests.** Locked copies run instead of the agent's versions; removed tests, removed assertions and new skip or xfail markers are flagged.
 - **Loosened configuration.** New lint or type-check suppressions, changed pytest options, a new `conftest.py`, changed `ohx.toml`.
@@ -184,15 +185,15 @@ jobs:
       - uses: rupeshpoojary9/OpenHarnX@<commit SHA of the OpenHarnX version you trust>
 ```
 
-Intended test changes are approved by a maintainer with the `ohx-approve-tests` label, or on any git platform with a signed `ohx approve-tests`. GitLab CI, Jenkins, runner requirements and the trust rules are in [docs/ci](docs/ci/README.md).
+Intended test changes are approved by a maintainer with the `ohx-approve-tests` label, or on any git platform with a signed `ohx approve-tests`. GitLab CI, Jenkins, runner requirements and the trust rules are in [docs/ci](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/ci/README.md).
 
-## Supported in 0.1.0
+## Supported in 0.1.1
 
-The release boundary is [docs/gate-release-criteria.md](docs/gate-release-criteria.md): Python projects tested with pytest, on macOS (arm64) locally and on Linux in CI ([docs/ci](docs/ci/README.md): a GitHub Action, GitLab and Jenkins examples), with `srt` as the sandbox. On anything else OpenHarnX makes no claim of protection.
+The release boundary is [docs/gate-release-criteria.md](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/gate-release-criteria.md): Python projects tested with pytest, on macOS (arm64) locally and on Linux in CI ([docs/ci](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/ci/README.md): a GitHub Action, GitLab and Jenkins examples), with `srt` as the sandbox. On anything else OpenHarnX makes no claim of protection.
 
 - **Locked tests.** `ohx init --lock-tests` makes the existing suite the contract; `ohx contract new --accept` adds acceptance tests for a task. Editing, skipping, deleting or weakening a locked test, loosening check configuration, or breaking a test that passed before is BLOCKED. Checkers supplied by the candidate cannot replace the real ones.
 - **Verdicts that say what they support.** READY needs agreed acceptance tests; NO REGRESSIONS means nothing that passed before broke and nothing shows the task is done. A check that is missing, crashed or timed out is UNKNOWN, never a pass. Readiness never authorizes a merge or a deploy.
-- **The review brief.** Every report opens with what was asked, which files changed, what was verified (each claim linked to the check's output), what remains unverified and the decisions left to you ([examples](docs/tasks/T96.md#before-and-after)).
+- **The review brief.** Every report opens with what was asked, which files changed, what was verified (each claim linked to the check's output), what remains unverified and the decisions left to you ([examples](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/tasks/T96.md#before-and-after)).
 - **Claude Code.** `ohx hook install` verifies when the agent says it is done and sends a blocked agent back with what failed.
 - **The checker's interpreter.** Checks run with the project's own: `python` in `ohx.toml`, else its `.venv` or `venv`, else the active virtual environment. Without `environment = "uv"` (a protected environment built from `uv.lock`), that interpreter's environment is fingerprinted when the contract is accepted, and any later change makes every check invalid, naming the files.
 - **Evidence.** A hash-chained local store signed with your SSH key; `ohx report`, `ohx audit` and `ohx store check`. In GitHub Actions the report is signed by the pipeline (Sigstore): `gh attestation verify report.json -R <owner>/<repo>`.
@@ -202,7 +203,7 @@ Commit `ohx.toml` and `contracts/`; keep `.claude/settings.local.json` (written 
 
 ## Experimental
 
-Working and tested, outside the 0.1.0 boundary: TypeScript and JavaScript projects (Vitest, Jest, `node --test`; in CI with `environment = "npm"` protecting `node_modules`), Go projects (`go test`), an advisory mutation check (changes the lines your change touched and reports any change the acceptance tests did not notice; 120 seconds unless `mutation_budget_s` says otherwise), `ohx bug` (an agent investigates a bug read-only, you approve the rule and tests, the agent fixes, the gate verifies) and `ohx trace` (requirement coverage).
+Working and tested, outside the 0.1.1 boundary: TypeScript and JavaScript projects (Vitest, Jest, `node --test`; in CI with `environment = "npm"` protecting `node_modules`), Go projects (`go test`), an advisory mutation check (changes the lines your change touched and reports any change the acceptance tests did not notice; 120 seconds unless `mutation_budget_s` says otherwise), `ohx bug` (an agent investigates a bug read-only, you approve the rule and tests, the agent fixes, the gate verifies) and `ohx trace` (requirement coverage).
 
 **Not supported:** Linux outside CI, Windows, pnpm and Yarn lockfiles, Playwright, more than one agent at a time.
 
@@ -210,11 +211,11 @@ Working and tested, outside the 0.1.0 boundary: TypeScript and JavaScript projec
 
 We replayed public agent work and published the results, including what OpenHarnX missed, legitimate changes it blocked, environment failures and known limitations. Each figure links to its record.
 
-- **Impossible tasks** ([DimitrovK/impossible-tasks](https://github.com/DimitrovK/impossible-tasks), 102 runs of five models on 8 impossible and 2 solvable projects). 80 runs could be replayed; 22 add files the dataset does not record. With zero setup, 43 of 52 fake fixes were caught: all 26 that changed the tests, and 17 of 26 that changed only the code. The checks for code-only tricks were written from half of the runs; on the held-out half they caught 5 of 11. 9 fakes passed: 6 leave a test failing as before, which zero setup judges as nothing regressed, and 3 change behaviour in ways only a specification could tell apart. All 6 genuine fixes passed; 8 legitimate test edits were blocked until a person accepted them ([docs/tasks/T89.md](docs/tasks/T89.md)).
-- **Real agent pull requests.** 20 merged Copilot pull requests in github/spec-kit, judged after the fact by the gate: 9 passed, 7 were blocked as intended test changes and passed once approved, 4 failed because of the replay's own environment. 31 agent commits in anthropics/claude-agent-sdk-python, most of them changelog updates: 28 passed, 3 were blocked as intended test changes. These are replays of changes people had already merged, not a measure of what reviewers would have caught ([docs/tasks/T90.md](docs/tasks/T90.md), [docs/tasks/T92.md](docs/tasks/T92.md)).
-- **Its own development.** Each change to OpenHarnX is verified READY under the sandbox by an earlier installed version of itself before it is committed, and the commit message names the contract and the digest it judged. The 0.1.0 release candidate then passed the gate in CI, after the gate there had found four defects that local runs missed ([docs/tasks/T100.md](docs/tasks/T100.md)).
+- **Impossible tasks** ([DimitrovK/impossible-tasks](https://github.com/DimitrovK/impossible-tasks), 102 runs of five models on 8 impossible and 2 solvable projects). 80 runs could be replayed; 22 add files the dataset does not record. With zero setup, 43 of 52 fake fixes were caught: all 26 that changed the tests, and 17 of 26 that changed only the code. The checks for code-only tricks were written from half of the runs; on the held-out half they caught 5 of 11. 9 fakes passed: 6 leave a test failing as before, which zero setup judges as nothing regressed, and 3 change behaviour in ways only a specification could tell apart. All 6 genuine fixes passed; 8 legitimate test edits were blocked until a person accepted them ([docs/tasks/T89.md](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/tasks/T89.md)).
+- **Real agent pull requests.** 20 merged Copilot pull requests in github/spec-kit, judged after the fact by the gate: 9 passed, 7 were blocked as intended test changes and passed once approved, 4 failed because of the replay's own environment. 31 agent commits in anthropics/claude-agent-sdk-python, most of them changelog updates: 28 passed, 3 were blocked as intended test changes. These are replays of changes people had already merged, not a measure of what reviewers would have caught ([docs/tasks/T90.md](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/tasks/T90.md), [docs/tasks/T92.md](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/tasks/T92.md)).
+- **Its own development.** Each change to OpenHarnX is verified READY under the sandbox by an earlier installed version of itself before it is committed, and the commit message names the contract and the digest it judged. The 0.1.0 release candidate then passed the gate in CI, after the gate there had found four defects that local runs missed ([docs/tasks/T100.md](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/tasks/T100.md)).
 
-Not measured yet: whether the review brief saves reviewers time. A study with real reviewers is on the [roadmap](ROADMAP.md).
+Not measured yet: whether the review brief saves reviewers time. A study with real reviewers is on the [roadmap](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/ROADMAP.md).
 
 ## FAQ
 
@@ -222,7 +223,7 @@ Not measured yet: whether the review brief saves reviewers time. A study with re
 No. The gate and the report make no model calls and need no API keys. Verdicts come from checks that ran: your tests, linters and type checks, plus OpenHarnX's own comparisons.
 
 **Is it a test framework?**
-No. It runs the tests you already have (pytest in 0.1.0) and decides which ones the agent may not change.
+No. It runs the tests you already have (pytest in 0.1.1) and decides which ones the agent may not change.
 
 **How is this different from running the tests in CI?**
 A normal CI job runs the tests in the pull request, so a pull request that edits a test gets a green run. OpenHarnX runs the base branch's copies against the change, compares results with what passed before, flags weakened tests and configuration, isolates the run in a sandbox, and records evidence bound to the exact change.
@@ -243,19 +244,19 @@ A maintainer approves it: the `ohx-approve-tests` label on GitHub, or a signed `
 
 | Topic | Where |
 |---|---|
-| The cheat demo | [examples/cheat-demo](examples/cheat-demo/README.md) |
-| CI on GitHub Actions, GitLab and Jenkins | [docs/ci](docs/ci/README.md) |
-| Release boundary and the tests behind it | [docs/gate-release-criteria.md](docs/gate-release-criteria.md) |
-| Threat model | [docs/threat-model.md](docs/threat-model.md) |
-| Releases and pinned installs | [docs/releasing.md](docs/releasing.md) |
-| Design decisions | [docs/adr/](docs/adr/) |
-| Each task's evidence | [docs/tasks/](docs/tasks/) |
-| Dependencies and licenses | [docs/dependencies.md](docs/dependencies.md) |
-| Security reports | [SECURITY.md](SECURITY.md) |
+| The cheat demo | [examples/cheat-demo](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/examples/cheat-demo/README.md) |
+| CI on GitHub Actions, GitLab and Jenkins | [docs/ci](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/ci/README.md) |
+| Release boundary and the tests behind it | [docs/gate-release-criteria.md](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/gate-release-criteria.md) |
+| Threat model | [docs/threat-model.md](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/threat-model.md) |
+| Releases and pinned installs | [docs/releasing.md](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/releasing.md) |
+| Design decisions | [docs/adr/](https://github.com/rupeshpoojary9/OpenHarnX/tree/main/docs/adr) |
+| Each task's evidence | [docs/tasks/](https://github.com/rupeshpoojary9/OpenHarnX/tree/main/docs/tasks) |
+| Dependencies and licenses | [docs/dependencies.md](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/dependencies.md) |
+| Security reports | [SECURITY.md](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/SECURITY.md) |
 
 ## Specifications
 
-The research, product requirements and roadmap reasoning are kept in the owner's private notes and are not published. What matters for the code is here: implementation decisions in [`docs/adr/`](docs/adr/), and for each task the commands, results and limitations in [`docs/tasks/`](docs/tasks/). [ADR-0001](docs/adr/0001-source-location-and-spec-home.md) explains the split.
+The research, product requirements and roadmap reasoning are kept in the owner's private notes and are not published. What matters for the code is here: implementation decisions in [`docs/adr/`](https://github.com/rupeshpoojary9/OpenHarnX/tree/main/docs/adr), and for each task the commands, results and limitations in [`docs/tasks/`](https://github.com/rupeshpoojary9/OpenHarnX/tree/main/docs/tasks). [ADR-0001](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/adr/0001-source-location-and-spec-home.md) explains the split.
 
 ## Development setup
 
@@ -267,19 +268,20 @@ uv sync                 # create the environment from uv.lock
 uv run ohx doctor       # check the local environment
 ```
 
-Install a release (pinned; see [docs/releasing.md](docs/releasing.md)), or the command from a clone for local use, and remove it again:
+Install a release (pinned; see [docs/releasing.md](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/releasing.md)), or the command from a clone for local use, and remove it again:
 
 ```bash
-uv tool install git+https://github.com/rupeshpoojary9/OpenHarnX@v0.1.0   # a release
-uv tool install .                                                        # from a clone
+uv tool install openharnx==0.1.1                                           # a release, from PyPI
+uv tool install git+https://github.com/rupeshpoojary9/OpenHarnX@v0.1.1     # the same, by its signed tag
+uv tool install .                                                          # from a clone
 ohx --version
 uv tool uninstall openharnx
 ```
 
 ## Contributing and roadmap
 
-Trying OpenHarnX on a real change is the most useful thing you can do right now: [report what happened](https://github.com/rupeshpoojary9/OpenHarnX/issues/new?template=trial-report.yml), whether it caught something or blocked legitimate work. Issues and small pull requests are welcome; a wrong verdict is the most useful report. [CONTRIBUTING.md](CONTRIBUTING.md) explains how to report one, set up, and how the gate treats a pull request. [ROADMAP.md](ROADMAP.md) lists what comes next and what is not planned.
+Trying OpenHarnX on a real change is the most useful thing you can do right now: [report what happened](https://github.com/rupeshpoojary9/OpenHarnX/issues/new?template=trial-report.yml), whether it caught something or blocked legitimate work. Issues and small pull requests are welcome; a wrong verdict is the most useful report. [CONTRIBUTING.md](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/CONTRIBUTING.md) explains how to report one, set up, and how the gate treats a pull request. [ROADMAP.md](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/ROADMAP.md) lists what comes next and what is not planned.
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE). Dependencies and their licenses are listed in [docs/dependencies.md](docs/dependencies.md).
+Apache-2.0. See [LICENSE](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/LICENSE). Dependencies and their licenses are listed in [docs/dependencies.md](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/dependencies.md).

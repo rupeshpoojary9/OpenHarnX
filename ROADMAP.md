@@ -2,7 +2,7 @@
 
 Where OpenHarnX is going next. No dates: work is taken in order and shipped when it is verified. Priorities move with what users report, so if something here matters to you, or something missing does, open an issue.
 
-What is released and supported today is in the [README](README.md#supported-in-010) and [docs/gate-release-criteria.md](docs/gate-release-criteria.md).
+What is released and supported today is in the [README](https://github.com/rupeshpoojary9/OpenHarnX#supported-in-011) and [docs/gate-release-criteria.md](docs/gate-release-criteria.md).
 
 ## Next (0.1.x)
 

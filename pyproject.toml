@@ -1,15 +1,37 @@
 [project]
 name = "openharnx"
-version = "0.1.0"
-description = "Local-first verifier for work done by coding agents: locked tests, sandboxed checks, verdicts and signed evidence"
+version = "0.1.1"
+description = "Open-source verifier for code written by AI coding agents: locked tests, sandboxed checks and a review brief"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "Rupesh Poojary" }]
 requires-python = ">=3.12"
+keywords = [
+    "coding-agents", "ai-agents", "claude-code", "codex", "verification", "testing",
+    "pytest", "code-review", "ci", "sandbox", "github-actions",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
+]
 dependencies = [
     "rfc8785>=0.1.4",
 ]
+
+[project.urls]
+Homepage = "https://github.com/rupeshpoojary9/OpenHarnX"
+Documentation = "https://github.com/rupeshpoojary9/OpenHarnX#readme"
+Issues = "https://github.com/rupeshpoojary9/OpenHarnX/issues"
+Releases = "https://github.com/rupeshpoojary9/OpenHarnX/releases"
 
 [project.scripts]
 ohx = "openharnx.cli:main"
