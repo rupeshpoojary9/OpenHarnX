@@ -38,6 +38,8 @@ jobs:
     # The suite runs three times (the locked copy at acceptance and in the run, and the
     # pull request's own), about 10 minutes each under srt on this runner (T100).
     timeout-minutes: 60
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
     steps:
       - name: Check out the base commit (trusted; the gate comes from here)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -54,7 +56,29 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # Documentation only: the job still reports, so the required check passes, but the
+      # suite, the sandbox and the signing are skipped (T102). The base's script decides.
+      - name: Decide whether only documentation changed
+        id: scope
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if out="$(sh trusted/scripts/docs-only.sh "$BASE" "$HEAD" candidate)"; then
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Documentation only"
+              echo
+              echo "Every changed file is documentation, so the gate's suite did not run:"
+              echo
+              printf '%s\n' "$out" | sed 's/^/- `/; s/$/`/'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run the gate (the action from the base installs itself)
+        if: steps.scope.outputs.docs_only != 'true'
         uses: ./trusted
         with:
           working-directory: candidate
@@ -63,7 +87,7 @@ jobs:
           out: ${{ runner.temp }}/ohx-gate
 
       - name: Keep the report
-        if: always()
+        if: always() && steps.scope.outputs.docs_only != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ohx-gate-report
@@ -71,7 +95,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Say how the report is signed
-        if: always()
+        if: always() && steps.scope.outputs.docs_only != 'true'
         env:
           PRIVATE: ${{ github.event.repository.private }}
           FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
@@ -94,6 +118,7 @@ jobs:
     needs: gate
     if: >-
       ${{ always() && needs.gate.result != 'skipped'
+      && needs.gate.outputs.docs_only != 'true'
       && !github.event.repository.private
       && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-24.04
