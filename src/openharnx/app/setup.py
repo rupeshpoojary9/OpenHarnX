@@ -8,6 +8,8 @@ programs the sandbox needs.
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import shutil
 import subprocess
@@ -38,6 +40,24 @@ def _version(program: str, *args: str) -> str | None:
     return text.splitlines()[0] if text else None
 
 
+def _package_version(srt: Path) -> str | None:
+    """The installed version from the npm package `srt` is linked from: srt 0.0.77
+    prints "1.0.0" for --version (T108)."""
+    folder = Path(os.path.realpath(srt)).parent
+    for candidate in (folder, *folder.parents):
+        manifest = candidate / "package.json"
+        if manifest.is_file():
+            try:
+                data = json.loads(manifest.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                return None
+            if isinstance(data, dict) and data.get("name") == "@anthropic-ai/sandbox-runtime":
+                version = data.get("version")
+                return version if isinstance(version, str) else None
+            return None
+    return None
+
+
 def check_srt() -> CheckResult:
     srt = find_srt()
     if srt is None:
@@ -48,7 +68,7 @@ def check_srt() -> CheckResult:
             f"the sandbox is not installed; checks would run without isolation."
             f" Install it: {SRT_INSTALL}",
         )
-    version = _version(str(srt), "--version") or "version unknown"
+    version = _package_version(srt) or _version(str(srt), "--version") or "version unknown"
     return CheckResult("srt", True, False, f"{version} ({srt})")
 
 

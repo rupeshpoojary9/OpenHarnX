@@ -81,6 +81,23 @@ def test_a_sandbox_that_is_installed_is_shown_with_its_version(
     assert srt.startswith("ok") and "0.0.77" in srt
 
 
+def test_the_sandbox_version_is_its_packages_not_what_it_prints(
+    bare: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Found running outside CI (T108): the pinned srt 0.0.77 prints "1.0.0" for
+    --version, so doctor showed a version nobody installed. npm links `srt` to the
+    package's script; its package.json holds the version that was installed."""
+    package = tmp_path / "lib" / "node_modules" / "@anthropic-ai" / "sandbox-runtime"
+    cli = _exe(package / "dist", "cli.js", 'echo "1.0.0"')
+    (package / "package.json").write_text(
+        '{"name": "@anthropic-ai/sandbox-runtime", "version": "0.0.77"}'
+    )
+    (bare / "srt").symlink_to(cli)
+    _, out = _doctor(capsys)
+    srt = next(x for x in out.splitlines() if " srt:" in x)
+    assert srt.startswith("ok") and "0.0.77" in srt and "1.0.0" not in srt
+
+
 def test_node_is_checked_because_the_sandbox_needs_it(
     bare: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
