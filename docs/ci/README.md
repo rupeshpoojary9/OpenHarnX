@@ -80,6 +80,8 @@ ohx approve-tests                          # signs "test changes approved for co
 git push origin refs/notes/ohx-approvals   # the signature travels as a git note
 ```
 
+`ohx approve-tests` signs with the first of these it finds: the key named by `OHX_SIGNING_KEY` (a path; `none` turns signing off); git's own SSH signing key, when `gpg.format` is `ssh` and `user.signingkey` names a key file; else `~/.ssh/id_ed25519`, `~/.ssh/id_ecdsa` or `~/.ssh/id_rsa`. To check which key that is, compare `ssh-keygen -lf <key>.pub` with the fingerprint of the key listed below.
+
 The gate accepts it when the signature verifies for exactly the judged commit and its key is listed in the base's `ohx.toml`:
 
 ```toml
