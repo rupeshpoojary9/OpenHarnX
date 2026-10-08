@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -172,6 +173,12 @@ def _node_modules_limitations(body: dict[str, Any], root: Path) -> list[str]:
     ]
 
 
+def _real(dirs: list[str]) -> list[str]:
+    """Folders by their real path, once each: a venv's `lib64 -> lib` is shown as `lib`,
+    the folder the user sees (T108). Display only; the fingerprint keeps the walked names."""
+    return list(dict.fromkeys(os.path.realpath(d) for d in dirs))
+
+
 def _interpreter_limitations(
     environment: dict[str, Any] | None,
     python: str,
@@ -190,7 +197,7 @@ def _interpreter_limitations(
     if recorded:
         covered = (
             f"its environment ({recorded['files']} files in"
-            f" {', '.join(recorded.get('dirs', [])) or 'unrecorded folders'}) was"
+            f" {', '.join(_real(recorded.get('dirs', []))) or 'unrecorded folders'}) was"
             " fingerprinted at acceptance and matched before the checks ran, so later"
             " changes there are caught; changes made before acceptance, compiled"
             " __pycache__ files, and code loaded from other folders are not"

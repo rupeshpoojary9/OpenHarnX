@@ -255,3 +255,34 @@ def test_a_configured_identity_is_kept_for_the_note(
     subprocess.run(["git", "-C", str(repo), "config", "user.email", "m@example.com"], check=True)
     assert main(["approve-tests"]) == EXIT_OK
     assert _note_author(repo) == "Maintainer <m@example.com>"
+
+
+def test_the_report_names_a_folder_by_its_real_path(
+    project: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Found running outside CI on Debian 13 (T108): a 64-bit venv has `lib64 -> lib`,
+    the walk kept the `lib64` name, and the report named a folder the user does not see
+    in their venv. The same files were fingerprinted; only the name was an alias."""
+    repo, site = project
+    venv_root = site.parents[2]
+    alias = venv_root / "lib64x"
+    alias.symlink_to("lib")
+    walked = environment.interpreter_dirs
+
+    def through_alias(python: str) -> tuple[list[Path], list[Path], list[Path]]:
+        dirs, skip, files = walked(python)
+        return (
+            [alias / d.relative_to(venv_root / "lib") if d == site else d for d in dirs],
+            skip,
+            files,
+        )
+
+    monkeypatch.setattr(environment, "interpreter_dirs", through_alias)
+    args = ["contract", "new", "--mode", "task", "--title", "t2", "--summary", "s"]
+    args += ["--acceptance", "acceptance/test_zero.py", "--accept", "--sandbox", "none"]
+    assert main(args) == EXIT_OK
+    (repo / "calc.py").write_text(CALC + "\n")
+    assert main(["verify", "--sandbox", "none"]) == EXIT_OK
+    limits = " ".join(_report(tmp_path)["limitations"])
+    assert str(site.resolve()) in limits
+    assert "lib64x" not in limits

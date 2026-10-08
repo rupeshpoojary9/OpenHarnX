@@ -69,7 +69,9 @@ def main() -> int:
     }
     print(json.dumps(results, indent=2))
     ok = (
-        genuine["readiness"] == "ready"
+        # No contract names acceptance tests, so the best verdict is NO REGRESSIONS
+        # (owner decision 2026-10-04: READY needs acceptance criteria).
+        genuine["readiness"] == "no-regressions"
         and str(protection["verifier"]).startswith("enforced")
         and cheat["readiness"] == "blocked"
     )
