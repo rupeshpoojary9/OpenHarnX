@@ -35,32 +35,19 @@ from openharnx.app import (
 )
 from openharnx.app import approval as approvals
 from openharnx.app.signed_approval import signed_approval
+from openharnx.app.suites import (
+    PYTEST,
+    _go_suite,
+    _js_suite,
+    _pytest_args,
+    _suite_fields,
+    _suite_timeout,
+)
 from openharnx.report import render_markdown
 from openharnx.store import Record
 from openharnx.weakening import JS_SOURCE, is_test_file
 from openharnx.workspace import NotARepository, repo_root
 
-PYTEST = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
-# Whole-suite commands for TypeScript and JavaScript (T82), with per-test results.
-JS_SUITES: dict[str, list[str]] = {
-    "vitest": [
-        "node_modules/.bin/vitest",
-        "run",
-        "--reporter=default",
-        "--reporter=junit",
-        "--outputFile.junit={junit}",
-    ],
-    "jest": ["node_modules/.bin/jest", "--ci"],
-    "node": [
-        "node",
-        "--test",
-        "--test-reporter=spec",
-        "--test-reporter-destination=stdout",
-        "--test-reporter=junit",
-        "--test-reporter-destination={junit}",
-        "**/*.{test,spec}.{ts,mts,cts,js,mjs,cjs}",
-    ],
-}
 SUMMARY_ENV = "GITHUB_STEP_SUMMARY"
 
 
@@ -81,6 +68,25 @@ def _base_copy(root: Path, base_sha: str, dest: Path) -> None:
     _git(dest, "-c", "advice.detachedHead=false", "checkout", "--quiet", "--detach", base_sha)
 
 
+def _runs_all_tests(obligations: list[dict[str, Any]], base: Path) -> bool:
+    """Whether one of the base's own obligations is a mandatory pytest run of all of
+    tests/ (T106): pytest with no path argument, or with `tests` itself. A run of part of
+    tests/ (any other path that exists in the base) does not count."""
+    for ob in obligations:
+        command = [str(c) for c in ob.get("command", [])]
+        if not ob.get("mandatory") or not any("pytest" in c for c in command):
+            continue
+        start = next(i for i, c in enumerate(command) if "pytest" in c) + 1
+        paths = [
+            c
+            for c in command[start:]
+            if not c.startswith("-") and "{" not in c and (base / c).exists()
+        ]
+        if all(Path(c) in (Path("tests"), Path(".")) for c in paths):
+            return True
+    return False
+
+
 def _gate_contract(
     base: Path,
     base_sha: str,
@@ -89,6 +95,7 @@ def _gate_contract(
     working_tree: bool = False,
     approved: approvals.Approval | None = None,
     project: Path | None = None,
+    tests_unchanged: bool = False,
 ) -> dict[str, Any]:
     """The contract the base implies: its tests locked, its own checks, its policy.
 
@@ -104,7 +111,17 @@ def _gate_contract(
             raise UsageError(f"the base commit's ohx.toml is not valid TOML: {exc}") from exc
     pytest = [*PYTEST, *_pytest_args(defaults)]
     obligations: list[dict[str, Any]] = []
-    if (base / "tests").is_dir() and approved is None:
+    # Nothing under tests/ changed (T106): a mandatory pytest run of all of tests/ in the
+    # base's ohx.toml is then the same check as the locked copy, so the copy is not run.
+    covered = tests_unchanged and _runs_all_tests(defaults.get("obligations", []), base)
+    once = ""
+    if covered:
+        once = (
+            "The pull request changes no file under tests/, so its tests are the base's"
+            " byte for byte: the base's mandatory test suite ran once, in place of a locked"
+            " copy and its baseline"
+        )
+    if (base / "tests").is_dir() and approved is None and not covered:
         obligations.append(
             {
                 "id": "locked-tests",
@@ -146,8 +163,13 @@ def _gate_contract(
     own = [dict(o) for o in defaults.get("obligations", [])]
     if "obligations" in defaults:
         obligations += own
-    else:
-        if (base / "tests").is_dir():
+    elif tests_unchanged and approved is None and (base / "tests").is_dir():
+        once = (
+            "The pull request changes no file under tests/, so its tests are the base's"
+            " byte for byte: they ran once, as the locked copy"
+        )
+    if "obligations" not in defaults:
+        if (base / "tests").is_dir() and not once:
             obligations.append(
                 {
                     "id": "tests",
@@ -196,65 +218,9 @@ def _gate_contract(
     if approved is not None:
         raw |= {f"approved_{k}": v for k, v in approvals.as_dict(approved).items()}
     raw["obligations"] = obligations
+    if once:
+        raw["suite_once"] = once
     return raw
-
-
-SUITE_TIMEOUT_S = 300
-
-
-def _suite_timeout(defaults: dict[str, Any]) -> int | float:
-    """Seconds a whole suite OpenHarnX adds may run (`suite_timeout_s` in ohx.toml): a
-    slow suite under the sandbox on a CI runner outgrew the fixed default (T100)."""
-    value = defaults.get("suite_timeout_s", SUITE_TIMEOUT_S)
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-        raise UsageError("suite_timeout_s in ohx.toml must be a positive number of seconds")
-    return value
-
-
-def _pytest_args(defaults: dict[str, Any]) -> list[str]:
-    """The project's own pytest options (`pytest_args` in ohx.toml, such as pytest-xdist's
-    `-n auto`), added to the locked run and the default `tests` run (T80)."""
-    args = defaults.get("pytest_args", [])
-    if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
-        raise UsageError("pytest_args in ohx.toml must be a list of strings")
-    return args
-
-
-def _js_suite(base: Path, defaults: dict[str, Any]) -> list[str] | None:
-    """The base's TypeScript or JavaScript runner: `js_runner` in ohx.toml, else Vitest or
-    Jest when package.json lists it, else Node's own; None when the base has no package.json."""
-    package_file = base / "package.json"
-    if not package_file.is_file():
-        return None
-    runner = defaults.get("js_runner")
-    if runner is None:
-        try:
-            package = json.loads(package_file.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-            package = {}
-        listed: set[str] = set()
-        for key in ("dependencies", "devDependencies"):
-            if isinstance(package, dict) and isinstance(package.get(key), dict):
-                listed |= set(package[key])
-        runner = next((r for r in ("vitest", "jest") if r in listed), "node")
-    if runner not in JS_SUITES:
-        raise UsageError(f"js_runner in the base's ohx.toml must be one of {sorted(JS_SUITES)}")
-    return list(JS_SUITES[runner])
-
-
-GO_ENV = {"GOTOOLCHAIN": "local", "GOFLAGS": "-mod=readonly", "GOCACHE": "{tmp}/go-build"}
-GO_SUITE = ["go", "test", "-json", "-count=1", "./..."]
-
-
-def _go_suite(base: Path) -> list[str] | None:
-    return list(GO_SUITE) if (base / "go.mod").is_file() else None
-
-
-def _suite_fields(suite: list[str]) -> dict[str, Any]:
-    fields: dict[str, Any] = {"command": suite}
-    if suite[0] == "go":
-        fields["env"] = dict(GO_ENV)
-    return fields
 
 
 def _lock_overlay_tests(base: Path, dest: Path) -> Path | None:
@@ -303,6 +269,20 @@ def _compare_url(base: str, head: str) -> str | None:
     return f"{server}/{repository}/compare/{base}...{head}"
 
 
+def _tests_unchanged(root: Path, base_sha: str) -> bool:
+    """Whether nothing under tests/ differs from the base: committed or not (T106)."""
+    committed = subprocess.run(
+        ["git", "-C", str(root), "diff", "--quiet", base_sha, "--", "tests"],
+        capture_output=True,
+    )
+    pending = subprocess.run(
+        ["git", "-C", str(root), "status", "--porcelain", "--", "tests"],
+        capture_output=True,
+        text=True,
+    )
+    return committed.returncode == 0 and not pending.stdout.strip()
+
+
 def gate(
     cwd: Path,
     base_ref: str,
@@ -345,13 +325,19 @@ def gate(
                 raise UsageError(f"{contract} does not exist in the base commit {base_sha[:12]}")
         else:
             contract_file = work / "gate-contract.toml"
-            raw = _gate_contract(base, base_sha, head_sha, approved=approved, project=root)
+            unchanged = _tests_unchanged(root, base_sha)
+            raw = _gate_contract(
+                base, base_sha, head_sha, approved=approved, project=root, tests_unchanged=unchanged
+            )
+            once = raw.pop("suite_once", "")
             _write_contract(raw, contract_file)
         init_project(root)
         accept_contract(root, contract_file, sandbox=sandbox, baseline_root=base)
         record, run_dir = verify(root, sandbox=sandbox)
         report = dict(record.body)
         report["ci"] = {"base_ref": base_ref, "base_commit": base_sha, "head_commit": head_sha}
+        if not contract and once:
+            report["limitations"] = [*report.get("limitations", []), once]
         report["changes"] = {**report["changes"], "base_commit": base_sha}
         compare = _compare_url(base_sha, head_sha)
         if compare:

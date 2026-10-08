@@ -90,6 +90,16 @@ layers = [
 ]
 
 [[tool.importlinter.contracts]]
+name = "Application layer: use cases above shared machinery (T107)"
+type = "layers"
+containers = ["openharnx.app"]
+layers = [
+    "verification | contracts | evidence",
+    "environments | trees | checks | suites",
+    "core",
+]
+
+[[tool.importlinter.contracts]]
 name = "Kernel stays pure: no I/O, clock or randomness"
 type = "forbidden"
 source_modules = ["openharnx.kernel"]
