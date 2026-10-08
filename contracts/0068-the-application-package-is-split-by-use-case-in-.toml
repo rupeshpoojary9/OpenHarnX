@@ -1,0 +1,43 @@
+title = "The application package is split by use case in layers"
+mode = "task"
+change_summary = "app/__init__.py is split into core, checks, trees, suites, environments, contracts, verification and evidence; import-linter keeps use cases above shared machinery above core; __init__ only re-exports (T107)."
+python = ".venv/bin/python"
+environment = "uv"
+
+[[obligations]]
+id = "acceptance-test_app_structure"
+kind = "acceptance"
+mandatory = true
+protected = "../tests/test_app_structure.py"
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "{protected}"]
+
+[[obligations]]
+id = "format"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "format", "--check", "--no-cache", "."]
+
+[[obligations]]
+id = "lint"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "ruff", "check", "--no-cache", "."]
+
+[[obligations]]
+id = "types"
+kind = "check"
+mandatory = true
+command = ["{python}", "-m", "mypy", "--cache-dir", "{tmp}/mypy"]
+
+[[obligations]]
+id = "layers"
+kind = "check"
+mandatory = true
+command = ["{bindir}/lint-imports", "--no-cache"]
+
+[[obligations]]
+id = "tests"
+kind = "regression"
+mandatory = true
+command = ["{python}", "-m", "pytest", "-q", "-p", "no:cacheprovider", "-n", "auto"]
+timeout_s = 1200
