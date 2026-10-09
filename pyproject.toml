@@ -1,6 +1,6 @@
 [project]
 name = "openharnx"
-version = "0.1.1"
+version = "0.1.2"
 description = "Open-source verifier for code written by AI coding agents: locked tests, sandboxed checks and a review brief"
 readme = "README.md"
 license = "Apache-2.0"
