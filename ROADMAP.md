@@ -2,19 +2,20 @@
 
 Where OpenHarnX is going. No dates: work is taken in order and shipped when it is verified. Priorities move with what users report, so if something here matters to you, or something missing does, open an issue or send a [trial report](https://github.com/rupeshpoojary9/OpenHarnX/issues/new?template=trial-report.yml).
 
-What is released and supported today is in the [README](https://github.com/rupeshpoojary9/OpenHarnX#supported-in-011) and the [release criteria](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/gate-release-criteria.md).
+What is released and supported today is in the [README](https://github.com/rupeshpoojary9/OpenHarnX#supported-in-012) and the [release criteria](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/gate-release-criteria.md).
 
 ## Released
 
 - [x] **0.1.0:** locked tests, sandboxed verification, verdicts that say what they support, the review brief, the Claude Code Stop hook, the CI gate (GitHub Action, GitLab and Jenkins examples), signed evidence locally and in CI, a fingerprinted checker interpreter.
 - [x] **0.1.1:** published to PyPI (`uv tool install openharnx`) through trusted publishing; a README that works as the PyPI page; the logo follows GitHub's theme.
+- [x] **0.1.2:** `ohx doctor` finds setup problems and says the fix; a troubleshooting guide; documentation-only pull requests skip the gate's suite; code that checks whether a test runner is running is flagged; the gate runs a suite once when no test file changed; an experimental OpenCode plugin; a repeatable Linux trial outside CI.
 
 ## Next (0.1.x)
 
 - [x] **Code that detects the test runner.** Flag changed code that behaves differently when pytest is running (for example by checking `sys.modules` or `PYTEST_CURRENT_TEST`), a way for a change to pass every test and fail in use.
 - [ ] **Approval and CI documentation.** The GitLab example fetching approval notes, which SSH key `ohx approve-tests` signs with, and a BLOCKED report that says how test changes are approved.
 - [ ] **The checker's interpreter.** Also fingerprint folders that a `.pth` file in its environment points to.
-- [ ] **Faster CI.** The gate runs the whole suite up to three times under the sandbox; reuse what can be reused.
+- [x] **Faster CI.** The gate runs the whole suite up to three times under the sandbox; reuse what can be reused.
 - [ ] **`ohx doctor`** checks the sandbox and JavaScript setups, not only Python and git.
 
 ## Agent integrations

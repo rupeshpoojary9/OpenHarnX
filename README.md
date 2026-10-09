@@ -27,7 +27,7 @@ OpenHarnX is an open-source verifier for changes written by AI coding agents. It
 
 It works locally, as a Claude Code hook, and as a CI gate for pull requests (a GitHub Action, with GitLab CI and Jenkins examples). It catches the ways an agent can get a green test run without doing the work: editing or deleting a test, adding a skip marker, loosening the test configuration, breaking tests that passed before, or tampering with the environment the tests run in.
 
-**Early release (0.1.1).** Tested on its own development, on replays of public agent runs and pull requests, and with simulated users. It has no production users yet, and nothing here claims that reviews get faster or that changes are safe.
+**Early release (0.1.2).** Tested on its own development, on replays of public agent runs and pull requests, and with simulated users. It has no production users yet, and nothing here claims that reviews get faster or that changes are safe.
 
 ## Contents
 
@@ -39,7 +39,7 @@ It works locally, as a Claude Code hook, and as a CI gate for pull requests (a G
 - [What it catches](https://github.com/rupeshpoojary9/OpenHarnX#what-it-catches)
 - [Use it with your coding agent](https://github.com/rupeshpoojary9/OpenHarnX#use-it-with-your-coding-agent)
 - [Use it in CI](https://github.com/rupeshpoojary9/OpenHarnX#use-it-in-ci)
-- [Supported in 0.1.1](https://github.com/rupeshpoojary9/OpenHarnX#supported-in-011)
+- [Supported in 0.1.2](https://github.com/rupeshpoojary9/OpenHarnX#supported-in-012)
 - [Evidence so far](https://github.com/rupeshpoojary9/OpenHarnX#evidence-so-far)
 - [FAQ](https://github.com/rupeshpoojary9/OpenHarnX#faq)
 - [Documentation](https://github.com/rupeshpoojary9/OpenHarnX#documentation)
@@ -70,7 +70,7 @@ flowchart LR
 
 ## Quick start
 
-0.1.1 supports Python projects tested with pytest, on macOS locally and Linux in CI ([details](https://github.com/rupeshpoojary9/OpenHarnX#supported-in-011)). You need Python 3.12 or newer, [uv](https://docs.astral.sh/uv/), git and, for the sandbox, Node 20 or later.
+0.1.2 supports Python projects tested with pytest, on macOS locally and Linux in CI ([details](https://github.com/rupeshpoojary9/OpenHarnX#supported-in-012)). You need Python 3.12 or newer, [uv](https://docs.astral.sh/uv/), git and, for the sandbox, Node 20 or later.
 
 ```bash
 # 1. Install OpenHarnX and the sandbox it runs checks in (srt comes from npm)
@@ -195,7 +195,7 @@ jobs:
 
 Intended test changes are approved by a maintainer with the `ohx-approve-tests` label, or on any git platform with a signed `ohx approve-tests`. GitLab CI, Jenkins, runner requirements and the trust rules are in [docs/ci](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/ci/README.md).
 
-## Supported in 0.1.1
+## Supported in 0.1.2
 
 The release boundary is [docs/gate-release-criteria.md](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/gate-release-criteria.md): Python projects tested with pytest, on macOS (arm64) locally and on Linux in CI ([docs/ci](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/ci/README.md): a GitHub Action, GitLab and Jenkins examples), with `srt` as the sandbox. On anything else OpenHarnX makes no claim of protection.
 
@@ -211,7 +211,7 @@ Commit `ohx.toml` and `contracts/`; keep `.claude/settings.local.json` (written 
 
 ## Experimental
 
-Working and tested, outside the 0.1.1 boundary: TypeScript and JavaScript projects (Vitest, Jest, `node --test`; in CI with `environment = "npm"` protecting `node_modules`), Go projects (`go test`), an advisory mutation check (changes the lines your change touched and reports any change the acceptance tests did not notice; 120 seconds unless `mutation_budget_s` says otherwise), `ohx bug` (an agent investigates a bug read-only, you approve the rule and tests, the agent fixes, the gate verifies), `ohx trace` (requirement coverage), and local verification on Linux (tried in a Debian 13 arm64 container under srt with `ci/linux/local_trial.sh`, not yet on a physical machine or x86_64).
+Working and tested, outside the 0.1.2 boundary: TypeScript and JavaScript projects (Vitest, Jest, `node --test`; in CI with `environment = "npm"` protecting `node_modules`), Go projects (`go test`), an advisory mutation check (changes the lines your change touched and reports any change the acceptance tests did not notice; 120 seconds unless `mutation_budget_s` says otherwise), `ohx bug` (an agent investigates a bug read-only, you approve the rule and tests, the agent fixes, the gate verifies), `ohx trace` (requirement coverage), and local verification on Linux (tried in a Debian 13 arm64 container under srt with `ci/linux/local_trial.sh`, not yet on a physical machine or x86_64).
 
 **Not supported:** Windows, pnpm and Yarn lockfiles, Playwright, more than one agent at a time.
 
@@ -231,7 +231,7 @@ Not measured yet: whether the review brief saves reviewers time. A study with re
 No. The gate and the report make no model calls and need no API keys. Verdicts come from checks that ran: your tests, linters and type checks, plus OpenHarnX's own comparisons.
 
 **Is it a test framework?**
-No. It runs the tests you already have (pytest in 0.1.1) and decides which ones the agent may not change.
+No. It runs the tests you already have (pytest in 0.1.2) and decides which ones the agent may not change.
 
 **How is this different from running the tests in CI?**
 A normal CI job runs the tests in the pull request, so a pull request that edits a test gets a green run. OpenHarnX runs the base branch's copies against the change, compares results with what passed before, flags weakened tests and configuration, isolates the run in a sandbox, and records evidence bound to the exact change.
@@ -281,8 +281,8 @@ uv run ohx doctor       # check the local environment
 Install a release (pinned; see [docs/releasing.md](https://github.com/rupeshpoojary9/OpenHarnX/blob/main/docs/releasing.md)), or the command from a clone for local use, and remove it again:
 
 ```bash
-uv tool install openharnx==0.1.1                                           # a release, from PyPI
-uv tool install git+https://github.com/rupeshpoojary9/OpenHarnX@v0.1.1     # the same, by its signed tag
+uv tool install openharnx==0.1.2                                           # a release, from PyPI
+uv tool install git+https://github.com/rupeshpoojary9/OpenHarnX@v0.1.2     # the same, by its signed tag
 uv tool install .                                                          # from a clone
 ohx --version
 uv tool uninstall openharnx
